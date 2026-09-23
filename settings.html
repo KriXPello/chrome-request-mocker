@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chrome Request Mocker Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <main>
+    <h1>Chrome Request Mocker Settings</h1>
+    <section>
+      <h2>Config folder</h2>
+      <div id="folder">No folder selected</div>
+      <div class="actions">
+        <button id="choose" type="button">Choose folder</button>
+        <button id="sync" type="button">Sync from folder</button>
+      </div>
+    </section>
+    <section>
+      <div>Last successful sync: <strong id="last-sync">Never</strong></div>
+      <div id="counts">0 configs / 0 rules</div>
+    </section>
+    <p id="status" role="status"></p>
+  </main>
+  <script type="module" src="settings.js"></script>
+</body>
+</html>

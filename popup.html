@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chrome Request Mocker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <div class="topline">
+      <strong>Chrome Request Mocker</strong>
+      <button id="settings" type="button" aria-label="Settings">⚙</button>
+    </div>
+    <div id="last-sync">Last sync: Never</div>
+    <div id="configs"></div>
+    <p class="hint">Reload the page to apply changes.</p>
+    <p id="status" class="status"></p>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
