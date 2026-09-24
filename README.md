@@ -6,6 +6,10 @@ Configs stay on your device, so you can edit them in your IDE, keep them in Git,
 
 > 100% vibe-coded. Bugs are guaranteed.
 
+## Showcase
+
+![extension popup](./assets/showcase.png)
+
 ## Install
 
 1. Clone or download this repository.
@@ -55,6 +59,7 @@ You can configure:
 - status and status text
 - headers
 - response body
+- response variants selectable from the extension popup (see [configuration documentaion](docs/configuration.md))
 
 Multiple config files and individual rules can be enabled or disabled from the extension popup.
 

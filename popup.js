@@ -1,4 +1,4 @@
-import { getDirectoryHandle, getConfigsAndSyncMeta, setConfigEnabled, setRuleEnabled } from "./db.js";
+import { getDirectoryHandle, getConfigsAndSyncMeta, setConfigEnabled, setRuleEnabled, setRuleResponseIndex } from "./db.js";
 import { syncConfigsFromDirectory } from "./config-sync.js";
 
 const configsElement = document.querySelector("#configs");
@@ -25,7 +25,11 @@ async function initialize() {
 async function render() {
   try {
     const { configs, meta } = await getConfigsAndSyncMeta();
-    lastSyncElement.textContent = `Last sync: ${meta?.lastSyncAt ? new Date(meta.lastSyncAt).toLocaleString() : "Never"}`;
+    let lastSync = "Never";
+    if (meta?.lastSyncAt) {
+      lastSync = formatDate(meta.lastSyncAt);
+    }
+    lastSyncElement.textContent = `Last sync: ${lastSync}`;
     configs.sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
     configsElement.replaceChildren(...configs.map(renderConfig));
     setInteractionState();
@@ -65,7 +69,7 @@ async function syncFromFolder() {
 }
 
 function setInteractionState() {
-  configsElement.querySelectorAll("input").forEach((input) => { input.disabled = syncInProgress; });
+  configsElement.querySelectorAll("input, select").forEach((control) => { control.disabled = syncInProgress; });
 }
 
 function renderConfig(config) {
@@ -82,28 +86,67 @@ function renderConfig(config) {
   wrapper.append(summary);
   const source = document.createElement("div");
   source.className = "source";
-  source.textContent = `${config.sourceFile} · Modified: ${new Date(config.fileLastModified).toLocaleString()}`;
+  source.textContent = `${config.sourceFile} · Modified: ${formatDate(config.fileLastModified)}`;
   wrapper.append(source);
   const rules = document.createElement("div");
   rules.className = "rules";
   for (const rule of config.rules) {
-    const row = document.createElement("label");
+    const row = document.createElement("div");
     row.className = "rule";
+    const main = document.createElement("label");
+    main.className = "rule-main";
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = rule.enabled;
     input.disabled = syncInProgress;
     input.addEventListener("change", () => updateRule(config, rule, input));
     const text = document.createElement("span");
-    text.append(document.createTextNode(rule.name || rule.id));
+    text.className = "rule-name";
+    text.textContent = rule.name || rule.id;
     const pattern = document.createElement("small");
+    pattern.className = "rule-pattern";
     pattern.textContent = rule.pattern;
-    text.append(pattern);
-    row.append(input, text);
+    main.append(input, text);
+    row.append(main);
+    if (config.formatVersion === 2 && Array.isArray(rule.response) && rule.response.length > 1) {
+      const select = document.createElement("select");
+      select.className = "response-select";
+      select.disabled = syncInProgress;
+      select.setAttribute("aria-label", `Response for ${rule.name || rule.id}`);
+      const selectedIndex = Number.isInteger(rule.selectedResponseIndex)
+        && rule.selectedResponseIndex >= 0 && rule.selectedResponseIndex < rule.response.length
+        ? rule.selectedResponseIndex : 0;
+      rule.response.forEach((response, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = response.name || `Response ${index + 1}`;
+        select.append(option);
+      });
+      select.value = String(selectedIndex);
+      select.addEventListener("change", () => updateResponse(config, rule, select));
+      row.append(select);
+    }
+    row.append(pattern);
     rules.append(row);
   }
   wrapper.append(rules);
   return wrapper;
+}
+
+async function updateResponse(config, rule, select) {
+  if (syncInProgress) return;
+  const previous = rule.selectedResponseIndex ?? 0;
+  const selectedResponseIndex = Number(select.value);
+  select.disabled = true;
+  try {
+    await setRuleResponseIndex(config.id, rule.id, selectedResponseIndex);
+    rule.selectedResponseIndex = selectedResponseIndex;
+  } catch (error) {
+    select.value = String(previous);
+    showError(error);
+  } finally {
+    select.disabled = syncInProgress;
+  }
 }
 
 async function updateConfig(config, checkbox) {
@@ -142,4 +185,15 @@ function setSyncStatus(message, kind) {
   syncStatusElement.textContent = message;
   syncStatusElement.className = `sync-status ${kind}`;
   syncStatusElement.hidden = false;
+}
+
+function formatDate(value) {
+  const date = new Date(value);
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }

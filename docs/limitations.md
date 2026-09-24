@@ -28,7 +28,7 @@ When a rule matches, the configured response is returned without contacting the 
 
 ## Syncing
 
-Config files are read only when you choose a folder or click **Sync from folder**.
+Config files are read only when you choose a folder, click **Sync from folder** in Settings, or click **Sync** in the popup.
 
 A successful sync stores a local snapshot inside Chrome. Folder access is not required while using already synced mocks.
 
@@ -48,6 +48,6 @@ You can also check the application DevTools console for `[Chrome Request Mocker]
 
 ## Folder access was lost
 
-Open Settings and run **Sync from folder** again. Chrome may ask for permission to access the folder.
+Click **Sync** in the popup or **Sync from folder** in Settings. Chrome may ask for permission to access the folder.
 
 Already synced mocks continue to work.

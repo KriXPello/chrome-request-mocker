@@ -5,7 +5,7 @@
 
 body {
     margin: 0;
-    min-width: 360px;
+    width: 480px;
 }
 
 main {
@@ -110,22 +110,36 @@ summary input {
 }
 
 .rule {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 2px;
+    margin: 10px 0;
+}
+
+.rule-main {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 7px;
-    margin: 8px 0;
+    min-width: 0;
     cursor: pointer;
 }
 
-.rule span {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+.rule-name {
+    min-width: 0;
 }
 
-small {
+.rule-pattern {
+    grid-column: 1 / -1;
+    margin-left: 24px;
     opacity: 0.7;
     overflow-wrap: anywhere;
+}
+
+.response-select {
+    max-width: 200px;
+    font: inherit;
 }
 
 #settings {

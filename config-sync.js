@@ -75,9 +75,20 @@ function validateConfig(value, filename) {
     if ("name" in rule && typeof rule.name !== "string") fail(prefix, "name must be a string");
     if (typeof rule.pattern !== "string" || !rule.pattern) fail(prefix, "pattern must be a non-empty string");
     if (!("response" in rule)) fail(prefix, "response is required");
-    if (!isPlainObject(rule.response)) fail(prefix, "response must be an object");
-    if (!("body" in rule.response)) fail(prefix, "response.body is required");
-    const response = normalizeResponse(rule.response, prefix);
+    let response;
+    if (Array.isArray(rule.response)) {
+      if (rule.response.length === 0) fail(prefix, "response must be a non-empty array");
+      response = rule.response.map((item, responseIndex) => {
+        const responsePrefix = `${prefix}: response[${responseIndex}]`;
+        if (!isPlainObject(item)) fail(responsePrefix, "must be an object");
+        if (!("body" in item)) fail(responsePrefix, "body is required");
+        return normalizeResponse(item, responsePrefix, true);
+      });
+    } else {
+      if (!isPlainObject(rule.response)) fail(prefix, "response must be an object");
+      if (!("body" in rule.response)) fail(prefix, "response.body is required");
+      response = normalizeResponse(rule.response, prefix);
+    }
     const delay = "delay" in rule ? rule.delay : 0;
     if (typeof delay !== "number" || !Number.isFinite(delay) || delay < 0) fail(prefix, "delay must be a finite number >= 0");
     let methods;
@@ -98,7 +109,7 @@ function validateConfig(value, filename) {
 
 function fail(filename, message) { throw new Error(`${filename}: ${message}`); }
 
-function normalizeResponse(value, prefix) {
+function normalizeResponse(value, prefix, allowName = false) {
   const status = "status" in value ? value.status : 200;
   if (!Number.isInteger(status) || status < 200 || status > 599) fail(prefix, "response.status must be an integer from 200 through 599");
   const statusText = "statusText" in value ? value.statusText : "";
@@ -113,7 +124,11 @@ function normalizeResponse(value, prefix) {
     headers[name] = headerValue;
   }
   if ([204, 205, 304].includes(status) && value.body !== null) fail(prefix, `response.body must be null for status ${status}`);
-  return { body: value.body, headers, status, statusText };
+  if (allowName && "name" in value && (typeof value.name !== "string" || !value.name.trim())) {
+    fail(prefix, "name must be a non-empty string");
+  }
+  return { body: value.body, headers, status, statusText,
+    ...(allowName && typeof value.name === "string" ? { name: value.name } : {}) };
 }
 
 function isPlainObject(value) {

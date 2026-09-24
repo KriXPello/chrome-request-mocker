@@ -109,6 +109,21 @@ export function setRuleEnabled(configId, ruleId, enabled) {
   }));
 }
 
+export function setRuleResponseIndex(configId, ruleId, selectedResponseIndex) {
+  return withDb((db) => transaction(db, ["configs"], "readwrite", (tx) => {
+    const store = tx.objectStore("configs");
+    const request = store.get(configId);
+    request.onsuccess = () => {
+      const config = request.result;
+      const rule = config?.rules?.find((item) => item.id === ruleId);
+      if (rule && Array.isArray(rule.response)) {
+        rule.selectedResponseIndex = selectedResponseIndex;
+        store.put(config);
+      }
+    };
+  }));
+}
+
 export function getSyncMeta() {
   return withDb((db) => new Promise((resolve, reject) => {
     const request = db.transaction("meta", "readonly").objectStore("meta").get("sync");
@@ -144,7 +159,16 @@ export function replaceConfigsAfterSync(configs, meta) {
         const previous = old.get(config.id);
         const oldRules = new Map((previous?.rules || []).map((rule) => [rule.id, rule]));
         configsStore.put({ ...config, enabled: previous ? Boolean(previous.enabled) : false,
-          rules: config.rules.map((rule) => ({ ...rule, enabled: oldRules.has(rule.id) ? Boolean(oldRules.get(rule.id).enabled) : true })) });
+          rules: config.rules.map((rule) => {
+            const oldRule = oldRules.get(rule.id);
+            const selectedResponseIndex = Array.isArray(rule.response) && oldRule
+              && Number.isInteger(oldRule.selectedResponseIndex)
+              && oldRule.selectedResponseIndex >= 0
+              && oldRule.selectedResponseIndex < rule.response.length
+              ? oldRule.selectedResponseIndex : 0;
+            return { ...rule, enabled: oldRule ? Boolean(oldRule.enabled) : true,
+              ...(Array.isArray(rule.response) ? { selectedResponseIndex } : {}) };
+          }) });
       }
       metaStore.put(meta);
     };

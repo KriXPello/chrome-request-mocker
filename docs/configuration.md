@@ -163,6 +163,21 @@ Statuses `204`, `205`, and `304` require:
 
 Invalid status values, headers, or other unsupported response values are rejected during sync.
 
+### Multiple responses
+
+A rule may define `response` as a non-empty array of complete response objects. Each object uses the same fields and defaults as a single response and must include `body`:
+
+```json
+"response": [
+  { "name": "Loading", "status": 200, "body": { "loading": true } },
+  { "name": "Ready", "status": 200, "body": { "loading": false } }
+]
+```
+
+The optional response `name` must be a non-empty string and is shown in the popup; it is not sent as an HTTP response property. Without a name, the popup uses `Response 1`, `Response 2`, and so on.
+
+New arrays select the first response. The selected zero-based index is stored locally by config and rule ID and falls back to `0` when it is missing or out of range. Reordering or inserting responses changes the meaning of a saved index.
+
 ## Complete example
 
 ```json
