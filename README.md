@@ -58,7 +58,7 @@ You can configure:
 
 Multiple config files and individual rules can be enabled or disabled from the extension popup.
 
-After changing config files, click **Sync from folder** and reload the page.
+After changing config files, click **Sync** in the popup and reload the page. Use Settings to choose the folder initially or change it later.
 
 ## URL patterns
 

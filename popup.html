@@ -8,13 +8,18 @@
 </head>
 <body>
   <main>
-    <div class="topline">
-      <strong>Chrome Request Mocker</strong>
-      <button id="settings" type="button" aria-label="Settings">⚙</button>
-    </div>
+    <header>
+      <div class="topline">
+        <strong>Chrome Request Mocker</strong>
+        <div class="actions">
+          <button id="sync" type="button" hidden>Sync</button>
+          <button id="settings" type="button" aria-label="Settings">⚙</button>
+        </div>
+      </div>
+      <div id="sync-status" class="sync-status" role="status" aria-live="polite" hidden></div>
+    </header>
     <div id="last-sync">Last sync: Never</div>
     <div id="configs"></div>
-    <p class="hint">Reload the page to apply changes.</p>
     <p id="status" class="status"></p>
   </main>
   <script type="module" src="popup.js"></script>

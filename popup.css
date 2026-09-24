@@ -12,20 +12,73 @@ main {
     padding: 14px;
 }
 
+header {
+    margin-bottom: 10px;
+}
+
 .topline {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 button {
     font: inherit;
 }
 
+.sync-status {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border: 1px solid currentColor;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.sync-status[hidden] {
+    display: none;
+}
+
+.sync-status.progress {
+    color: #1769aa;
+    background: #e7f3ff;
+}
+
+.sync-status.success {
+    color: #176b35;
+    background: #e8f7ed;
+}
+
+.sync-status.error {
+    color: #a12622;
+    background: #fdecea;
+}
+
+@media (prefers-color-scheme: dark) {
+    .sync-status.progress {
+        color: #9acbff;
+        background: #16334d;
+    }
+
+    .sync-status.success {
+        color: #9bddae;
+        background: #183d25;
+    }
+
+    .sync-status.error {
+        color: #ffaaa5;
+        background: #4b211f;
+    }
+}
+
 #last-sync,
 .source,
-.hint,
 .status {
     font-size: 12px;
     opacity: 0.8;
@@ -73,10 +126,6 @@ summary input {
 small {
     opacity: 0.7;
     overflow-wrap: anywhere;
-}
-
-.hint {
-    margin-bottom: 0;
 }
 
 #settings {
