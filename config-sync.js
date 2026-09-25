@@ -51,7 +51,7 @@ async function readConfigs(directoryHandle) {
     configFiles.set(config.id, entry.name);
     configs.push({
       ...config,
-      formatVersion: 2,
+      formatVersion: 3,
       sourceFile: entry.name,
       fileLastModified: file.lastModified,
       importedAt: 0
@@ -74,21 +74,27 @@ function validateConfig(value, filename) {
     ids.add(rule.id);
     if ("name" in rule && typeof rule.name !== "string") fail(prefix, "name must be a string");
     if (typeof rule.pattern !== "string" || !rule.pattern) fail(prefix, "pattern must be a non-empty string");
-    if (!("response" in rule)) fail(prefix, "response is required");
+    if (("response" in rule) === ("responses" in rule)) fail(prefix, "exactly one of response or responses is required");
     let response;
-    if (Array.isArray(rule.response)) {
-      if (rule.response.length === 0) fail(prefix, "response must be a non-empty array");
-      response = rule.response.map((item, responseIndex) => {
-        const responsePrefix = `${prefix}: response[${responseIndex}]`;
+    if ("responses" in rule) {
+      if (!Array.isArray(rule.responses) || rule.responses.length === 0) fail(prefix, "responses must be a non-empty array");
+      const responseIds = new Set();
+      response = rule.responses.map((item, responseIndex) => {
+        const responsePrefix = `${prefix}: responses[${responseIndex}]`;
         if (!isPlainObject(item)) fail(responsePrefix, "must be an object");
+        if (typeof item.id !== "string" || !item.id.trim()) fail(responsePrefix, "id must be a non-empty string");
+        if (responseIds.has(item.id)) fail(responsePrefix, `id "${item.id}" is duplicated`);
+        responseIds.add(item.id);
         if (!("body" in item)) fail(responsePrefix, "body is required");
-        return normalizeResponse(item, responsePrefix, true);
+        return normalizeResponse(item, responsePrefix, true, item.id);
       });
     } else {
       if (!isPlainObject(rule.response)) fail(prefix, "response must be an object");
       if (!("body" in rule.response)) fail(prefix, "response.body is required");
       response = normalizeResponse(rule.response, prefix);
     }
+    const query = normalizeQuery(rule.query, prefix);
+    const routes = normalizeRoutes(rule.routes, response, query, prefix);
     const delay = "delay" in rule ? rule.delay : 0;
     if (typeof delay !== "number" || !Number.isFinite(delay) || delay < 0) fail(prefix, "delay must be a finite number >= 0");
     let methods;
@@ -102,14 +108,15 @@ function validateConfig(value, filename) {
       }
     }
     return { id: rule.id, ...(typeof rule.name === "string" ? { name: rule.name } : {}), pattern: rule.pattern,
-      ...(methods ? { methods } : {}), delay, response };
+      ...(methods ? { methods } : {}), delay, ...(query ? { query } : {}),
+      ...(routes ? { routes } : {}), ...(Array.isArray(response) ? { responses: response } : { response }) };
   });
   return { id: value.id, ...(typeof value.name === "string" ? { name: value.name } : {}), rules };
 }
 
 function fail(filename, message) { throw new Error(`${filename}: ${message}`); }
 
-function normalizeResponse(value, prefix, allowName = false) {
+function normalizeResponse(value, prefix, allowName = false, responseId = null) {
   const status = "status" in value ? value.status : 200;
   if (!Number.isInteger(status) || status < 200 || status > 599) fail(prefix, "response.status must be an integer from 200 through 599");
   const statusText = "statusText" in value ? value.statusText : "";
@@ -127,8 +134,60 @@ function normalizeResponse(value, prefix, allowName = false) {
   if (allowName && "name" in value && (typeof value.name !== "string" || !value.name.trim())) {
     fail(prefix, "name must be a non-empty string");
   }
-  return { body: value.body, headers, status, statusText,
+  return { ...(responseId ? { id: responseId } : {}), body: value.body, headers, status, statusText,
     ...(allowName && typeof value.name === "string" ? { name: value.name } : {}) };
+}
+
+function normalizeQuery(value, prefix) {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.length === 0) fail(prefix, "query must be a non-empty array");
+  return value.map((alternative, index) => {
+    const queryPrefix = `${prefix}: query[${index}]`;
+    if (!isPlainObject(alternative) || Object.keys(alternative).length === 0) fail(queryPrefix, "must be a non-empty object");
+    const result = {};
+    for (const [name, configured] of Object.entries(alternative)) {
+      if (!name.trim()) fail(queryPrefix, "parameter names must be non-empty strings");
+      const values = Array.isArray(configured) ? configured : [configured];
+      if (values.length === 0 || values.some((item) => typeof item !== "string")) fail(queryPrefix, `query parameter "${name}" must be a string or non-empty string array`);
+      for (const item of values) validateGlob(item, queryPrefix);
+      Object.defineProperty(result, name, {
+        value: values,
+        enumerable: true,
+        configurable: true,
+        writable: true
+      });
+    }
+    return result;
+  });
+}
+
+function validateGlob(value, prefix) {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === "\\") {
+      const next = value[index + 1];
+      if (!next || !"*?+\\".includes(next)) fail(prefix, "query wildcard contains an invalid escape");
+      index += 1;
+    }
+  }
+}
+
+function normalizeRoutes(value, responses, query, prefix) {
+  if (value === undefined) return null;
+  if (!Array.isArray(responses)) fail(prefix, "routes requires responses");
+  if (query) fail(prefix, "query and routes cannot be used together");
+  if (value.length === 0) fail(prefix, "routes must be a non-empty array");
+  const ids = new Set(responses.map((item) => item.id));
+  let fallback = false;
+  return value.map((route, index) => {
+    const routePrefix = `${prefix}: routes[${index}]`;
+    if (!isPlainObject(route) || typeof route.responseId !== "string" || !ids.has(route.responseId)) fail(routePrefix, "responseId must reference a response");
+    const routeQuery = normalizeQuery(route.query, routePrefix);
+    if (!routeQuery) {
+      if (fallback || index !== value.length - 1) fail(routePrefix, "only one query-less fallback is allowed and it must be last");
+      fallback = true;
+    }
+    return { ...(routeQuery ? { query: routeQuery } : {}), responseId: route.responseId };
+  });
 }
 
 function isPlainObject(value) {

@@ -95,7 +95,7 @@
       const char = glob[index];
       if (char === "*") {
         if (glob[index + 1] === "*") {
-          source += ".*";
+          source += "[\\s\\S]*";
           index += 1;
         } else {
           source += "[^/]*";
@@ -135,18 +135,70 @@
     }
   }
 
-  function matchingRule(config, url, method) {
+  function matchingRule(config, matchingUrl, method, requestUrl) {
     if (!config) {
       return null;
     }
 
     for (const rule of config.rules) {
-      if (rule.matcher.test(url) && (!rule.methods || rule.methods.includes(method))) {
-        return rule;
+      if (rule.matcher.test(matchingUrl) && (!rule.methods || rule.methods.includes(method))
+        && queryMatches(rule.query, requestUrl)) {
+        const response = routedResponse(rule, requestUrl);
+        if (response) {
+          if (Array.isArray(rule.responses)) {
+            return { ...rule, response };
+          }
+          return rule;
+        }
       }
     }
 
     return null;
+  }
+
+  function queryMatches(query, requestUrl) {
+    if (!query) return true;
+    let parsed;
+    try { parsed = new URL(requestUrl); } catch { return false; }
+    const params = parsed.searchParams;
+    return query.some((alternative) => Object.entries(alternative).every(([name, patterns]) => {
+      const values = params.getAll(name);
+      return values.length > 0 && values.some((value) => patterns.some((pattern) => queryGlobMatches(pattern, value)));
+    }));
+  }
+
+  function routedResponse(rule, requestUrl) {
+    if (!Array.isArray(rule.routes)) return rule.response;
+    for (const route of rule.routes) {
+      if (!route.query || queryMatches(route.query, requestUrl)) {
+        return rule.responses.find((response) => response.id === route.responseId) || null;
+      }
+    }
+    return null;
+  }
+
+  function queryGlobMatches(pattern, value) {
+    let source = "^";
+    for (let index = 0; index < pattern.length; index += 1) {
+      const char = pattern[index];
+      if (char === "\\") {
+        source += escapeRegExp(pattern[index + 1]);
+        index += 1;
+      } else if (char === "*") {
+        source += "[\\s\\S]*";
+      } else if (char === "?") {
+        source += "[\\s\\S]?";
+      } else if (char === "+") {
+        source += "[\\s\\S]+";
+      } else {
+        source += escapeRegExp(char);
+      }
+    }
+    return new RegExp(`${source}$`, "u").test(value);
+  }
+
+  function escapeRegExp(value) {
+    return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
   }
 
   function sleep(ms, signal) {
@@ -182,6 +234,16 @@
     return new DOMException("The operation was aborted.", "AbortError");
   }
 
+  function responseForRule(rule) {
+    const response = rule.response;
+    return {
+      body: response.body,
+      headers: response.headers,
+      status: response.status,
+      statusText: response.statusText
+    };
+  }
+
   patchFetch();
   patchXmlHttpRequest();
 
@@ -192,7 +254,7 @@
       const config = configLoaded ? preparedConfig : await configReady;
       const url = absoluteUrl(input);
       const method = effectiveFetchMethod(input, init);
-      const rule = matchingRule(config, urlForMatching(url), method);
+      const rule = matchingRule(config, urlForMatching(url), method, url);
 
       if (!rule) {
         return nativeFetch.apply(this, arguments);
@@ -297,7 +359,7 @@
           );
         }
 
-        const rule = matchingRule(preparedConfig, meta.matchingUrl, meta.method);
+        const rule = matchingRule(preparedConfig, meta.matchingUrl, meta.method, meta.url);
         if (!rule) {
           meta.delegated = true;
           return nativeSend.call(xhr, body);
@@ -319,7 +381,7 @@
           return;
         }
 
-        const rule = matchingRule(config, meta.matchingUrl, meta.method);
+        const rule = matchingRule(config, meta.matchingUrl, meta.method, meta.url);
         if (!rule) {
           meta.delegated = true;
           nativeSend.call(xhr, body);
@@ -492,18 +554,6 @@
             .map(([name, value]) => `${name}: ${value}\r\n`).join("");
         }
       });
-    }
-
-    function responseForRule(rule) {
-      if (rule.responseFormatVersion === 2) {
-        return rule.response;
-      }
-      return {
-        body: rule.response,
-        headers: { "Content-Type": "application/json; charset=utf-8" },
-        status: 200,
-        statusText: "OK"
-      };
     }
 
     function defineGetter(target, name, getter) {

@@ -109,15 +109,15 @@ export function setRuleEnabled(configId, ruleId, enabled) {
   }));
 }
 
-export function setRuleResponseIndex(configId, ruleId, selectedResponseIndex) {
+export function setRuleResponseId(configId, ruleId, selectedResponseId) {
   return withDb((db) => transaction(db, ["configs"], "readwrite", (tx) => {
     const store = tx.objectStore("configs");
     const request = store.get(configId);
     request.onsuccess = () => {
       const config = request.result;
       const rule = config?.rules?.find((item) => item.id === ruleId);
-      if (rule && Array.isArray(rule.response)) {
-        rule.selectedResponseIndex = selectedResponseIndex;
+      if (rule && Array.isArray(rule.responses) && rule.responses.some((response) => response.id === selectedResponseId)) {
+        rule.selectedResponseId = selectedResponseId;
         store.put(config);
       }
     };
@@ -161,13 +161,11 @@ export function replaceConfigsAfterSync(configs, meta) {
         configsStore.put({ ...config, enabled: previous ? Boolean(previous.enabled) : false,
           rules: config.rules.map((rule) => {
             const oldRule = oldRules.get(rule.id);
-            const selectedResponseIndex = Array.isArray(rule.response) && oldRule
-              && Number.isInteger(oldRule.selectedResponseIndex)
-              && oldRule.selectedResponseIndex >= 0
-              && oldRule.selectedResponseIndex < rule.response.length
-              ? oldRule.selectedResponseIndex : 0;
+            const selectedResponseId = Array.isArray(rule.responses) && oldRule
+              && rule.responses.some((response) => response.id === oldRule.selectedResponseId)
+              ? oldRule.selectedResponseId : (Array.isArray(rule.responses) ? rule.responses[0].id : null);
             return { ...rule, enabled: oldRule ? Boolean(oldRule.enabled) : true,
-              ...(Array.isArray(rule.response) ? { selectedResponseIndex } : {}) };
+              ...(Array.isArray(rule.responses) && !rule.routes ? { selectedResponseId } : {}) };
           }) });
       }
       metaStore.put(meta);

@@ -11,23 +11,22 @@ chrome.runtime.onMessage.addListener((message) => {
 async function loadRuntimeConfig() {
   try {
     const { configs, meta } = await getConfigsAndSyncMeta();
-    const active = configs.filter((config) => config.enabled).sort((a, b) =>
+    const active = configs.filter((config) => config.enabled && config.formatVersion === 3).sort((a, b) =>
       a.sourceFile.localeCompare(b.sourceFile));
     const rules = [];
     for (const config of active) {
       for (const rule of config.rules) {
         if (rule.enabled) {
           const runtimeRule = { ...rule };
-          if (config.formatVersion === 2 && Array.isArray(rule.response)) {
-            const index = Number.isInteger(rule.selectedResponseIndex)
-              && rule.selectedResponseIndex >= 0
-              && rule.selectedResponseIndex < rule.response.length
-              ? rule.selectedResponseIndex : 0;
-            runtimeRule.response = { ...rule.response[index] };
+          if (Array.isArray(rule.responses) && !rule.routes) {
+            const selected = rule.responses.find((response) => response.id === rule.selectedResponseId) || rule.responses[0];
+            runtimeRule.response = { ...selected };
+            delete runtimeRule.response.id;
             delete runtimeRule.response.name;
+            delete runtimeRule.responses;
+            delete runtimeRule.selectedResponseId;
           }
-          delete runtimeRule.selectedResponseIndex;
-          rules.push({ ...runtimeRule, responseFormatVersion: config.formatVersion ?? 1,
+          rules.push({ ...runtimeRule, responseFormatVersion: 3,
             configId: config.id, ruleId: rule.id });
         }
       }

@@ -1,0 +1,150 @@
+{
+  "id": "demo-api",
+  "name": "Demo API",
+  "rules": [
+    {
+      "id": "health",
+      "name": "Service Availability",
+      "pattern": "**/api/health",
+      "methods": ["GET"],
+      "response": {
+        "body": {
+          "ok": true,
+          "service": "demo-api"
+        }
+      }
+    },
+    {
+      "id": "search",
+      "name": "Search with Filters",
+      "pattern": "**/api/search",
+      "methods": ["GET"],
+      "query": [
+        {
+          "q": "demo-*",
+          "type": ["task", "note"],
+          "sort": "new"
+        }
+      ],
+      "response": {
+        "body": {
+          "items": [
+            {
+              "id": "task-12",
+              "title": "Review demo results"
+            }
+          ],
+          "total": 1
+        }
+      }
+    },
+    {
+      "id": "profile",
+      "name": "Profile States",
+      "pattern": "**/api/profile",
+      "methods": ["GET"],
+      "responses": [
+        {
+          "id": "basic",
+          "name": "Viewer Profile",
+          "body": {
+            "name": "Demo User",
+            "role": "Viewer"
+          }
+        },
+        {
+          "id": "team",
+          "name": "Team Editor Profile",
+          "body": {
+            "name": "Demo User",
+            "role": "Editor",
+            "team": "Sample Team"
+          }
+        },
+        {
+          "id": "empty",
+          "name": "No Profile Data",
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "projects",
+      "name": "Project Routing",
+      "pattern": "**/api/*/projects/**",
+      "methods": ["GET"],
+      "responses": [
+        {
+          "id": "matched",
+          "name": "Active and Draft Projects",
+          "body": {
+            "items": [
+              {
+                "id": "p-1",
+                "name": "Sample Board",
+                "tasks": 4
+              }
+            ],
+            "view": "matched"
+          }
+        },
+        {
+          "id": "done",
+          "name": "Completed Projects",
+          "body": {
+            "items": [
+              {
+                "id": "p-2",
+                "name": "Finished Plan",
+                "tasks": 0
+              }
+            ],
+            "view": "done"
+          }
+        },
+        {
+          "id": "all",
+          "name": "All Projects",
+          "body": {
+            "items": [
+              {
+                "id": "p-1",
+                "name": "Sample Board",
+                "tasks": 4
+              },
+              {
+                "id": "p-2",
+                "name": "Finished Plan",
+                "tasks": 0
+              }
+            ],
+            "view": "all"
+          }
+        }
+      ],
+      "routes": [
+        {
+          "query": [
+            {
+              "status": ["active", "draft"],
+              "tag": ["ui", "api"],
+              "page": "1"
+            }
+          ],
+          "responseId": "matched"
+        },
+        {
+          "query": [
+            {
+              "status": "done"
+            }
+          ],
+          "responseId": "done"
+        },
+        {
+          "responseId": "all"
+        }
+      ]
+    }
+  ]
+}

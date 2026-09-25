@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chrome Request Mocker",
-  "version": "0.6.2",
+  "version": "1.0.0",
   "description": "Sync local JSON mock configurations and intercept fetch/XHR responses directly in Chrome.",
   "minimum_chrome_version": "122",
   "host_permissions": [

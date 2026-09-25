@@ -88,7 +88,7 @@ button {
     margin-top: 12px;
 }
 
-details {
+.config {
     border-top: 1px solid #8885;
     padding: 8px 0;
 }
@@ -105,6 +105,13 @@ summary input {
     margin: 5px 0 8px 24px;
 }
 
+.snapshot-warning {
+    margin: 5px 0 8px 24px;
+    color: #a12622;
+    font-size: 12px;
+    font-weight: 600;
+}
+
 .rules {
     margin-left: 24px;
 }
@@ -115,7 +122,7 @@ summary input {
     align-items: center;
     column-gap: 12px;
     row-gap: 2px;
-    margin: 10px 0;
+    margin: 6px 0;
 }
 
 .rule-main {
@@ -140,6 +147,79 @@ summary input {
 .response-select {
     max-width: 200px;
     font: inherit;
+}
+
+.rule-details {
+    grid-column: 1 / -1;
+    min-width: 0;
+    margin: 4px 0 0 24px;
+    font-size: 12px;
+}
+
+.rule-details > summary {
+    width: fit-content;
+    opacity: 0.8;
+}
+
+.rule-details[open] > summary {
+    margin-bottom: 6px;
+}
+
+.query-groups {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    font-size: 11px;
+}
+
+.routes-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 11px;
+}
+
+.routes-table th,
+.routes-table td {
+    padding: 3px 4px;
+    border: 1px solid #8885;
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+
+.routes-table th {
+    font-weight: 600;
+    opacity: 0.75;
+}
+
+.route-conditions {
+    width: 65%;
+}
+
+.route-response {
+    width: 35%;
+    font-weight: 500;
+}
+
+.query-condition-group {
+    padding: 2px 4px;
+    border: 1px solid #8885;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.route-conditions .query-condition-group + .query-condition-group {
+    margin-top: 3px;
+}
+
+.query-condition + .query-condition {
+    margin-top: 2px;
+}
+
+.route-fallback {
+    opacity: 0.75;
 }
 
 #settings {
