@@ -76,10 +76,19 @@ async function syncFromFolder() {
 async function performSync() {
   try {
     await syncConfigsFromDirectory(directoryHandle);
+    await notifyRuntimeConfig();
     await renderMeta();
     setStatus("Synced successfully.", "ok");
   } catch (error) {
     setStatus(`Sync failed.\n${messageOf(error)}`, "error");
+  }
+}
+
+async function notifyRuntimeConfig() {
+  try {
+    await chrome.runtime.sendMessage({ type: "RUNTIME_CONFIG_UPDATED" });
+  } catch (error) {
+    console.warn("Runtime config notification failed after saving.", error);
   }
 }
 

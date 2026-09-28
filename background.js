@@ -1,12 +1,45 @@
 import { getConfigsAndSyncMeta } from "./db.js";
 
+let runtimeRevision = 0;
+let updateQueue = Promise.resolve();
+
 chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type !== "GET_RUNTIME_CONFIG") {
-    return undefined;
+  if (message?.type === "GET_RUNTIME_CONFIG") {
+    return loadRuntimeConfig().then((payload) => ({ ...payload, revision: runtimeRevision }));
   }
 
-  return loadRuntimeConfig();
+  if (message?.type === "RUNTIME_CONFIG_UPDATED") {
+    updateQueue = updateQueue.then(broadcastRuntimeConfig, broadcastRuntimeConfig);
+    return updateQueue;
+  }
+
+  return undefined;
 });
+
+function broadcastRuntimeConfig() {
+  runtimeRevision += 1;
+  return loadRuntimeConfig().then(async (payload) => {
+    const message = { type: "RUNTIME_CONFIG_UPDATE", payload, revision: runtimeRevision };
+    let tabs = [];
+    try {
+      tabs = await chrome.tabs.query({});
+    } catch (error) {
+      console.warn("Could not enumerate tabs for runtime config update.", error);
+      return { ok: false };
+    }
+    await Promise.allSettled(tabs.filter((tab) => tab.id !== undefined).map((tab) =>
+      sendRuntimeUpdate(tab.id, message)));
+    return { ok: true };
+  });
+}
+
+async function sendRuntimeUpdate(tabId, message) {
+  try {
+    await chrome.tabs.sendMessage(tabId, message);
+  } catch {
+    // A tab can disappear or reject extension messaging while the update is sent.
+  }
+}
 
 async function loadRuntimeConfig() {
   try {

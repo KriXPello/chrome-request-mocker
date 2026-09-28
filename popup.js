@@ -60,8 +60,9 @@ async function syncFromFolder() {
   setSyncStatus("Syncing configs…", "progress");
   try {
     await syncConfigsFromDirectory(directoryHandle);
+    await notifyRuntimeConfig();
     await render();
-    setSyncStatus("Synced successfully. Reload the page to apply changes.", "success");
+    setSyncStatus("Synced successfully. Changes apply to open pages.", "success");
   } catch (error) {
     setSyncStatus(`Sync failed.\n${error instanceof Error ? error.message : String(error)}`, "error");
   } finally {
@@ -238,6 +239,7 @@ async function updateResponse(config, rule, select) {
   try {
     await setRuleResponseId(config.id, rule.id, selectedResponseId);
     rule.selectedResponseId = selectedResponseId;
+    await notifyRuntimeConfig();
   } catch (error) {
     select.value = previous;
     showError(error);
@@ -252,6 +254,7 @@ async function updateConfig(config, checkbox) {
   checkbox.disabled = true;
   try {
     await setConfigEnabled(config.id, checkbox.checked);
+    await notifyRuntimeConfig();
   } catch (error) {
     checkbox.checked = previous;
     showError(error);
@@ -266,6 +269,7 @@ async function updateRule(config, rule, checkbox) {
   checkbox.disabled = true;
   try {
     await setRuleEnabled(config.id, rule.id, checkbox.checked);
+    await notifyRuntimeConfig();
   } catch (error) {
     checkbox.checked = previous;
     showError(error);
@@ -276,6 +280,14 @@ async function updateRule(config, rule, checkbox) {
 
 function showError(error) {
   statusElement.textContent = `Could not save setting: ${error instanceof Error ? error.message : String(error)}`;
+}
+
+async function notifyRuntimeConfig() {
+  try {
+    await chrome.runtime.sendMessage({ type: "RUNTIME_CONFIG_UPDATED" });
+  } catch (error) {
+    console.warn("Runtime config notification failed after saving.", error);
+  }
 }
 
 function setSyncStatus(message, kind) {

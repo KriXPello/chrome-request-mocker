@@ -16,6 +16,7 @@
 
   let configLoaded = false;
   let preparedConfig = null;
+  let latestBridgeRevision = -1;
   let resolveConfig;
 
   const configReady = new Promise((resolve) => {
@@ -39,21 +40,34 @@
     }
 
     const payload = message.payload;
+    const revision = Number.isInteger(message.revision) ? message.revision : latestBridgeRevision + 1;
+    if (revision <= latestBridgeRevision) {
+      return;
+    }
+    latestBridgeRevision = revision;
     if (payload?.ok) {
-      settleConfig(payload.config ?? null, null, true);
+      if (configLoaded) {
+        applyConfig(payload.config ?? null, null, false);
+      } else {
+        settleConfig(payload.config ?? null, null, true);
+      }
     } else {
-      settleConfig(null, payload?.error || "Could not load Chrome Request Mocker config.");
+      if (!configLoaded) {
+        settleConfig(null, payload?.error || "Could not load Chrome Request Mocker config.");
+      } else {
+        console.warn(`[Chrome Request Mocker] ${payload?.error || "Could not update runtime config."}`);
+      }
     }
   }
 
   function settleConfig(config, error, runtimeLoaded = false) {
-    if (configLoaded) {
-      return;
-    }
-
     configLoaded = true;
     clearTimeout(configTimeout);
-    window.removeEventListener("message", onBridgeMessage);
+    applyConfig(config, error, runtimeLoaded);
+    resolveConfig(preparedConfig);
+  }
+
+  function applyConfig(config, error, runtimeLoaded = false) {
 
     if (error) {
       console.warn(`[Chrome Request Mocker] ${error}`);
@@ -64,7 +78,6 @@
       console.info(`[Chrome Request Mocker] Loaded runtime config (${preparedConfig.rules.length} rules).`);
     }
 
-    resolveConfig(preparedConfig);
   }
 
   function prepareConfig(config) {
