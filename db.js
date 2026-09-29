@@ -1,5 +1,5 @@
 const DB_NAME = "local-mock";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const DIRECTORY_KEY = "config-directory";
 
 function openDb() {
@@ -16,6 +16,7 @@ function openDb() {
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta", { keyPath: "key" });
       }
+      if (!db.objectStoreNames.contains("inputs")) db.createObjectStore("inputs", { keyPath: ["configId", "inputId"] });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -26,15 +27,20 @@ function transaction(db, stores, mode, action) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(stores, mode);
     let result;
+    let abortReason = null;
+    const abort = (error) => {
+      abortReason = error;
+      tx.abort();
+    };
     try {
-      result = action(tx);
+      result = action(tx, abort);
     } catch (error) {
       reject(error);
       return;
     }
     tx.oncomplete = () => resolve(result);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
+    tx.onerror = () => reject(abortReason || tx.error);
+    tx.onabort = () => reject(abortReason || tx.error || new Error("IndexedDB transaction aborted"));
   });
 }
 
@@ -79,6 +85,64 @@ export function getConfig(id) {
     request.onsuccess = () => resolve(request.result ?? null);
     request.onerror = () => reject(request.error);
   }));
+}
+
+export function getConfigInputs(id) {
+  return withDb((db) => new Promise((resolve, reject) => {
+    const range = IDBKeyRange.bound([id, ""], [id, "\uffff"]);
+    const request = db.transaction("inputs", "readonly").objectStore("inputs").getAll(range);
+    request.onsuccess = () => resolve(Object.fromEntries(request.result.map(({ inputId, value }) => [inputId, value])));
+    request.onerror = () => reject(request.error);
+  }));
+}
+
+export function saveConfigInputs(configId, importedAt, descriptors, values, wasIncomplete) {
+  return withDb((db) => transaction(db, ["configs", "inputs"], "readwrite", (tx, abort) => {
+    const configRequest = tx.objectStore("configs").get(configId);
+    const store = tx.objectStore("inputs");
+    const range = IDBKeyRange.bound([configId, ""], [configId, "\uffff"]);
+    configRequest.onsuccess = () => {
+      const currentConfig = configRequest.result;
+      const currentDescriptors = currentConfig?.inputs || {};
+      if (currentConfig?.importedAt !== importedAt || !sameInputTypes(currentDescriptors, descriptors)) {
+        abort(new Error("The config changed while its inputs were being edited. Reopen Inputs and try again."));
+        return;
+      }
+      for (const [inputId, value] of Object.entries(values)) {
+        const descriptor = currentDescriptors[inputId];
+        if (!descriptor || !isValidInputValue(descriptor.type, value)) {
+          abort(new Error(`Invalid value for input "${inputId}".`));
+          return;
+        }
+      }
+      store.delete(range);
+      for (const [inputId, value] of Object.entries(values)) store.put({ configId, inputId, value });
+      if (wasIncomplete || !hasAllInputValues(currentDescriptors, values)) {
+        currentConfig.enabled = false;
+        tx.objectStore("configs").put(currentConfig);
+      }
+    };
+  }));
+}
+
+function sameInputTypes(current, expected) {
+  const currentEntries = Object.entries(current);
+  const expectedEntries = Object.entries(expected);
+  if (currentEntries.length !== expectedEntries.length) return false;
+  return expectedEntries.every(([id, descriptor]) =>
+    Object.hasOwn(current, id) && current[id]?.type === descriptor.type);
+}
+
+function isValidInputValue(type, value) {
+  if (type === "boolean") return typeof value === "boolean";
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  if (type === "string") return typeof value === "string" && value.length > 0;
+  return false;
+}
+
+function hasAllInputValues(descriptors, values) {
+  return Object.entries(descriptors).every(([id, descriptor]) =>
+    Object.hasOwn(values, id) && isValidInputValue(descriptor.type, values[id]));
 }
 
 export function setConfigEnabled(id, enabled) {
@@ -148,17 +212,34 @@ export function getConfigsAndSyncMeta() {
 }
 
 export function replaceConfigsAfterSync(configs, meta) {
-  return withDb((db) => transaction(db, ["configs", "meta"], "readwrite", (tx) => {
+  return withDb((db) => transaction(db, ["configs", "meta", "inputs"], "readwrite", (tx) => {
     const configsStore = tx.objectStore("configs");
     const metaStore = tx.objectStore("meta");
+    const inputStore = tx.objectStore("inputs");
     const oldRequest = configsStore.getAll();
-    oldRequest.onsuccess = () => {
-      const old = new Map(oldRequest.result.map((config) => [config.id, config]));
+    const storedInputs = inputStore.getAll();
+    let oldConfigs;
+    let inputRows;
+    const applyReplacement = () => {
+      if (!oldConfigs || !inputRows) return;
+      const old = new Map(oldConfigs.map((config) => [config.id, config]));
+      const storedValues = new Map(inputRows.map((item) => [`${item.configId}\0${item.inputId}`, item.value]));
       configsStore.clear();
       for (const config of configs) {
         const previous = old.get(config.id);
         const oldRules = new Map((previous?.rules || []).map((rule) => [rule.id, rule]));
-        configsStore.put({ ...config, enabled: previous ? Boolean(previous.enabled) : false,
+        const previousInputsComplete = Object.entries(previous?.inputs || {}).every(([inputId, descriptor]) => {
+          const key = `${config.id}\0${inputId}`;
+          return storedValues.has(key) && isValidInputValue(descriptor.type, storedValues.get(key));
+        });
+        const inputsComplete = Object.entries(config.inputs || {}).every(([inputId, descriptor]) => {
+          const previousDescriptor = previous?.inputs?.[inputId];
+          const key = `${config.id}\0${inputId}`;
+          return previousDescriptor?.type === descriptor.type && storedValues.has(key)
+            && isValidInputValue(descriptor.type, storedValues.get(key));
+        });
+        const enabled = Boolean(previous?.enabled) && previousInputsComplete && inputsComplete;
+        configsStore.put({ ...config, enabled,
           rules: config.rules.map((rule) => {
             const oldRule = oldRules.get(rule.id);
             const selectedResponseId = Array.isArray(rule.responses) && oldRule
@@ -169,6 +250,14 @@ export function replaceConfigsAfterSync(configs, meta) {
           }) });
       }
       metaStore.put(meta);
+      const valid = new Set();
+      for (const config of configs) for (const [inputId, descriptor] of Object.entries(config.inputs || {})) {
+        const previous = old.get(config.id)?.inputs?.[inputId];
+        if (previous?.type === descriptor.type) valid.add(`${config.id}\0${inputId}`);
+      }
+      for (const item of inputRows) if (!valid.has(`${item.configId}\0${item.inputId}`)) inputStore.delete([item.configId, item.inputId]);
     };
+    oldRequest.onsuccess = () => { oldConfigs = oldRequest.result; applyReplacement(); };
+    storedInputs.onsuccess = () => { inputRows = storedInputs.result; applyReplacement(); };
   }));
 }

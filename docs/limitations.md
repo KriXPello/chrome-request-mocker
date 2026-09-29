@@ -2,9 +2,9 @@
 
 ## When changes take effect
 
-After changing enabled configs/rules or syncing config files, reload the application page.
+Changes to enabled configs, rules, selected responses, input values, and synchronized files are sent to open pages immediately. They affect subsequent requests; requests already in progress keep the configuration with which they started.
 
-The active mock rules are loaded when the page starts.
+The badge on the extension icon shows the number of enabled configs whose required inputs are complete. It counts configs rather than individual rules; an enabled config is counted even when all of its rules are disabled.
 
 ## What is intercepted
 
@@ -34,12 +34,18 @@ A successful sync stores a local snapshot inside Chrome. Folder access is not re
 
 If any config file is invalid, the sync fails and the previous working snapshot remains unchanged.
 
+## Runtime data visibility
+
+Config files and input values are stored locally in the browser profile and are not uploaded by the extension. However, enabled and complete configs are resolved and delivered to pages where the extension runs so that page-context code can intercept requests. At present, every eligible page receives the active runtime configuration, even when none of its URLs match a rule. Page scripts can observe that configuration, including input values used in patterns, query conditions, response bodies, or response headers.
+
+Treat `masked` as a display convenience, not a security boundary. Do not store credentials that must remain secret from the pages open in this browser profile.
+
 ## A rule does not match
 
 Check that:
 
 - both the config and rule are enabled;
-- the page was reloaded after the last change;
+- all inputs declared by the config have values;
 - the HTTP method matches;
 - `*` is used for one path segment and `**` when the match needs to cross `/`;
 - the pattern does not depend on query parameters.

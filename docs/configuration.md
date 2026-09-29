@@ -1,10 +1,10 @@
-# Configuration (schema v1)
+# Configuration
 
 Chrome Request Mocker reads JSON files from the selected folder (not subdirectories). Files are sorted by filename and rules by array order; the first enabled match wins. Sync validates every file atomically. 
 
 ## Config and rule
 
-A config file contains an array of rules:
+A config file is an object containing an array of rules:
 
 ```json
 {
@@ -18,6 +18,7 @@ Config fields:
 
 - `id` - required, config identifier unique across all config files
 - `name` - optional, config name shown in the popup; `id` is used when omitted
+- `inputs` - optional, object of required local input descriptors used by templates; see [Inputs and templates](#inputs-and-templates)
 - `rules` - required, array of rules
 
 Each rule uses one of three forms.
@@ -117,6 +118,69 @@ The popup displays `Automatic · N routes` instead of a response selector.
 ## Rules toggle
 
 Configs are disabled by default, and new rules are enabled by default. Enabled state is stored locally and preserved by config and rule IDs across sync.
+
+## Inputs and templates
+
+An optional top-level `inputs` object declares values that belong to the local browser profile rather than the JSON file. Every declared input is required. Input IDs must match `[A-Za-z_][A-Za-z0-9_]*`.
+
+Each descriptor accepts only these fields:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `name` | input ID | Non-empty label shown in the popup |
+| `type` | `"string"` | One of `"string"`, `"number"`, or `"boolean"` |
+| `masked` | `false` | Uses a password control in the popup; may be specified only for string inputs |
+
+```json
+{
+  "id": "tenant-api",
+  "inputs": {
+    "tenant": { "name": "Tenant ID" },
+    "token": { "name": "Access token", "masked": true },
+    "limit": { "type": "number" },
+    "preview": { "type": "boolean" }
+  },
+  "rules": [
+    {
+      "id": "list",
+      "pattern": "**/tenants/${tenant}/items",
+      "query": [{ "token": "${token}" }],
+      "response": {
+        "headers": { "X-Tenant": "tenant-${tenant}" },
+        "body": {
+          "limit": "${limit}",
+          "preview": "${preview}",
+          "message": "Tenant ${tenant}",
+          "placeholderExample": "$${tenant}"
+        }
+      }
+    }
+  ]
+}
+```
+
+`${id}` inserts a declared input. `$${id}` emits the literal text `${id}`. Unknown references and malformed active placeholders reject the complete sync.
+
+Substitution is performed only in:
+
+- rule `pattern`;
+- rule and route `query` values;
+- string values anywhere inside a response `body`;
+- response header values.
+
+Object keys and structural fields such as IDs, names, methods, status, and status text are not templates. An exact body value such as `"${limit}"` preserves the input type, so the example returns a JSON number and boolean. A composite body value such as `"Tenant ${tenant}"` and every header value produce strings.
+
+Inserted values are always literal and are never parsed again as templates. In `pattern` and `query`, wildcard characters supplied by an input do not become wildcards. For example, a `tenant` value of `team-*` matches the literal text `team-*`.
+
+### Editing and persistence
+
+Open **Inputs** in the config header in the popup, edit the complete set, and use **Save** or **Cancel** in that same header. Saving replaces all locally stored values for that config in one operation. Incomplete sets may be saved, but doing so disables the config. Its checkbox remains disabled until every input has a value; after completing the inputs, enable the config manually. Empty strings are missing, numbers must be finite, and booleans distinguish **Not set** from `true` and `false`.
+
+Edits are written to a local draft immediately as fields change. If the popup closes, the **Inputs · Unsaved** marker remains and reopening the editor restores the draft. **Save** validates and commits the complete editor state; **Cancel** discards the draft and restores the last saved values. Draft fields survive a config sync while their input IDs and types remain compatible, and incompatible or deleted fields are discarded.
+
+Values are keyed by config ID and input ID and are stored separately from the synchronized config snapshot. Sync preserves a value when the config ID, input ID, and type are unchanged. It removes values for deleted configs or inputs and for inputs whose type changed. Changing only `name` or `masked` preserves the value. If a sync makes the input set incomplete, the config is automatically disabled.
+
+Masked inputs only hide the text in the popup. Saved values and unsaved drafts are not encrypted. When an enabled config is ready, its resolved runtime rules are delivered to pages so the mocker can match requests and construct responses; see [Runtime data visibility](limitations.md#runtime-data-visibility).
 
 ## URL patterns
 

@@ -1,4 +1,5 @@
-import { getDirectoryHandle, getConfigsAndSyncMeta, setConfigEnabled, setRuleEnabled, setRuleResponseId } from "./db.js";
+import { getDirectoryHandle, getConfigsAndSyncMeta, getConfigInputs, saveConfigInputs, setConfigEnabled, setRuleEnabled, setRuleResponseId } from "./db.js";
+import { inputReadiness, inputsReady, resolveRuntimeRule } from "./inputs.js";
 import { syncConfigsFromDirectory } from "./config-sync.js";
 
 const configsElement = document.querySelector("#configs");
@@ -6,8 +7,11 @@ const lastSyncElement = document.querySelector("#last-sync");
 const statusElement = document.querySelector("#status");
 const syncButton = document.querySelector("#sync");
 const syncStatusElement = document.querySelector("#sync-status");
+const INPUT_DRAFT_PREFIX = "config-input-draft:";
 let directoryHandle = null;
 let syncInProgress = false;
+let editingConfigId = null;
+let inputSaveInProgress = false;
 document.querySelector("#settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 syncButton.addEventListener("click", syncFromFolder);
 await initialize();
@@ -31,7 +35,11 @@ async function render() {
     }
     lastSyncElement.textContent = `Last sync: ${lastSync}`;
     configs.sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
-    configsElement.replaceChildren(...configs.map(renderConfig));
+    const values = await Promise.all(configs.map((config) => getConfigInputs(config.id)));
+    cleanupInputDrafts(new Set(configs.map((config) => config.id)));
+    const drafts = configs.map((config, index) => readInputDraft(config, values[index]));
+    configsElement.replaceChildren(...configs.map((config, index) =>
+      renderConfig(config, values[index], drafts[index])));
     setInteractionState();
     const hasOldSnapshot = configs.some((config) => (config.formatVersion ?? 0) < 3);
     if (hasOldSnapshot) {
@@ -74,31 +82,109 @@ async function syncFromFolder() {
 }
 
 function setInteractionState() {
+  syncButton.disabled = syncInProgress || editingConfigId !== null;
   configsElement.querySelectorAll(".config").forEach((configElement) => {
     const oldSnapshot = configElement.querySelector(".snapshot-warning") !== null;
-    configElement.querySelectorAll("input, select").forEach((control) => { control.disabled = syncInProgress || oldSnapshot; });
+    const inputsMissing = configElement.dataset.inputsMissing === "true";
+    const editor = configElement.querySelector(".input-editor");
+    configElement.querySelectorAll("input, select").forEach((control) => {
+      control.disabled = syncInProgress || inputSaveInProgress || oldSnapshot
+        || (inputsMissing && control.classList.contains("config-toggle"))
+        || (editingConfigId !== null && !editor?.contains(control));
+    });
+    configElement.querySelectorAll("button").forEach((button) => {
+      button.disabled = syncInProgress || inputSaveInProgress || oldSnapshot
+        || (editingConfigId !== null && !editor);
+    });
   });
 }
 
-function renderConfig(config) {
+function renderConfig(config, values = {}, draftValues = null) {
   const oldSnapshot = (config.formatVersion ?? 0) < 3;
+  const readiness = inputReadiness(config.inputs, values);
+  const inputsMissing = readiness.missing > 0;
   const wrapper = document.createElement("details");
   wrapper.className = "config";
+  wrapper.dataset.inputsMissing = String(inputsMissing);
   wrapper.open = true;
   const summary = document.createElement("summary");
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
-  checkbox.checked = config.enabled;
-  checkbox.disabled = syncInProgress || oldSnapshot;
+  checkbox.className = "config-toggle";
+  checkbox.checked = config.enabled && !inputsMissing;
+  checkbox.disabled = syncInProgress || oldSnapshot || inputsMissing;
+  if (inputsMissing) {
+    checkbox.title = "Fill in all inputs before enabling this config.";
+  }
   checkbox.addEventListener("click", (event) => event.stopPropagation());
   checkbox.addEventListener("change", () => updateConfig(config, checkbox));
-  summary.append(checkbox, document.createTextNode(` ${config.name || config.id}`));
+  const title = document.createElement("span");
+  title.textContent = ` ${config.name || config.id}`;
+  summary.append(checkbox, title);
+  if (config.inputs && Object.keys(config.inputs).length) {
+    const actions = document.createElement("span");
+    actions.className = "config-header-actions";
+    if (editingConfigId === config.id) {
+      const draftIndicator = document.createElement("span");
+      draftIndicator.className = "input-draft-indicator";
+      draftIndicator.textContent = "Unsaved";
+      draftIndicator.hidden = draftValues === null;
+      actions.append(draftIndicator);
+      actions.append(makeEditorAction("Save", () => commitInputDraft(config, editorControls, inputsMissing)));
+      actions.append(makeEditorAction("Cancel", () => {
+        clearInputDraft(config.id);
+        editingConfigId = null;
+        render();
+      }));
+    } else {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      if (draftValues) {
+        editButton.className = "inputs-button unsaved";
+        editButton.textContent = "Inputs · Unsaved";
+      } else {
+        editButton.className = `inputs-button ${readiness.missing ? "missing" : ""}`;
+        editButton.textContent = readiness.missing ? `Inputs · ${readiness.missing} missing` : `Inputs ${readiness.ready}/${readiness.total}`;
+      }
+      editButton.disabled = syncInProgress || editingConfigId !== null;
+      editButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (editingConfigId !== null) return;
+        editingConfigId = config.id;
+        render();
+      });
+      actions.append(editButton);
+    }
+    actions.addEventListener("click", (event) => { if (event.target.closest("button")) event.stopPropagation(); });
+    summary.append(actions);
+  }
   wrapper.append(summary);
   if (oldSnapshot) {
     const warning = document.createElement("div");
     warning.className = "snapshot-warning";
     warning.textContent = "Outdated snapshot — Sync required";
     wrapper.append(warning);
+  }
+  let editorControls = null;
+  if (editingConfigId === config.id) {
+    const draftIndicator = summary.querySelector(".input-draft-indicator");
+    const editor = createInputEditor(config, values, draftValues, (controls) => {
+      try {
+        const hasDraft = storeInputDraft(config, values, collectRawInputValues(config, controls));
+        draftIndicator.hidden = !hasDraft;
+        draftIndicator.textContent = "Unsaved";
+        draftIndicator.classList.remove("error");
+      } catch (error) {
+        draftIndicator.hidden = false;
+        draftIndicator.textContent = "Draft not saved";
+        draftIndicator.classList.add("error");
+        showError(error);
+      }
+    });
+    editorControls = editor.controls;
+    wrapper.append(editor.element);
+    return wrapper;
   }
   const source = document.createElement("div");
   source.className = "source";
@@ -151,6 +237,207 @@ function renderConfig(config) {
   }
   wrapper.append(rules);
   return wrapper;
+}
+
+function makeEditorAction(text, action) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = text;
+  button.disabled = syncInProgress;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    action();
+  });
+  return button;
+}
+
+function readInputDraft(config, savedValues) {
+  const key = inputDraftKey(config.id);
+  let record;
+  try {
+    record = JSON.parse(localStorage.getItem(key));
+  } catch {
+    localStorage.removeItem(key);
+    return null;
+  }
+  if (!record || !Array.isArray(record.fields)) {
+    localStorage.removeItem(key);
+    return null;
+  }
+
+  const rows = new Map();
+  for (const row of record.fields) {
+    if (row && typeof row.id === "string" && typeof row.type === "string" && typeof row.raw === "string") {
+      rows.set(row.id, row);
+    }
+  }
+
+  const values = Object.create(null);
+  let hasCompatibleField = false;
+  for (const [id, descriptor] of Object.entries(config.inputs || {})) {
+    const row = rows.get(id);
+    if (row?.type === descriptor.type) {
+      values[id] = row.raw;
+      hasCompatibleField = true;
+    } else {
+      values[id] = storedInputAsRaw(descriptor, savedValues[id]);
+    }
+  }
+  if (!hasCompatibleField || !inputDraftDiffers(config, savedValues, values)) {
+    localStorage.removeItem(key);
+    return null;
+  }
+  return values;
+}
+
+function storeInputDraft(config, savedValues, rawValues) {
+  if (!inputDraftDiffers(config, savedValues, rawValues)) {
+    clearInputDraft(config.id);
+    return false;
+  }
+  const fields = Object.entries(config.inputs).map(([id, descriptor]) => ({
+    id,
+    type: descriptor.type,
+    raw: rawValues[id]
+  }));
+  localStorage.setItem(inputDraftKey(config.id), JSON.stringify({ fields }));
+  return true;
+}
+
+function inputDraftDiffers(config, savedValues, rawValues) {
+  return Object.entries(config.inputs).some(([id, descriptor]) =>
+    rawValues[id] !== storedInputAsRaw(descriptor, savedValues[id]));
+}
+
+function storedInputAsRaw(descriptor, value) {
+  if (descriptor.type === "boolean") {
+    return typeof value === "boolean" ? String(value) : "";
+  }
+  if (descriptor.type === "number") {
+    return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+  }
+  return typeof value === "string" ? value : "";
+}
+
+function clearInputDraft(configId) {
+  localStorage.removeItem(inputDraftKey(configId));
+}
+
+function cleanupInputDrafts(configIds) {
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith(INPUT_DRAFT_PREFIX) && !configIds.has(key.slice(INPUT_DRAFT_PREFIX.length))) {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
+function inputDraftKey(configId) {
+  return `${INPUT_DRAFT_PREFIX}${configId}`;
+}
+
+function createInputEditor(config, values, draftValues, onChange) {
+  const element = document.createElement("div");
+  element.className = "input-editor";
+  const controls = Object.create(null);
+  for (const [id, descriptor] of Object.entries(config.inputs)) {
+    const label = document.createElement("label");
+    const title = document.createElement("span");
+    title.textContent = descriptor.name || id;
+    label.append(title);
+    const hasDraft = draftValues !== null;
+    const value = hasDraft ? draftValues[id] : values[id];
+    const control = createInputControl(id, descriptor, value, label, hasDraft);
+    controls[id] = control;
+    control.addEventListener(control instanceof HTMLSelectElement ? "change" : "input", () => onChange(controls));
+    element.append(label);
+  }
+  return { element, controls };
+}
+
+function createInputControl(id, descriptor, value, label, valueIsRaw) {
+  if (descriptor.type === "boolean") {
+    const select = document.createElement("select");
+    for (const [optionValue, text] of [["", "Not set"], ["true", "true"], ["false", "false"]]) {
+      const option = document.createElement("option");
+      option.value = optionValue;
+      option.textContent = text;
+      select.append(option);
+    }
+    select.value = valueIsRaw ? value : typeof value === "boolean" ? String(value) : "";
+    label.append(select);
+    return select;
+  }
+
+  const input = document.createElement("input");
+  input.type = descriptor.type === "number" ? "number" : descriptor.masked ? "password" : "text";
+  input.value = value ?? "";
+  if (descriptor.type === "number") input.step = "any";
+  label.append(input);
+  if (descriptor.masked) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.textContent = "Show";
+    toggle.addEventListener("click", () => {
+      input.type = input.type === "password" ? "text" : "password";
+      toggle.textContent = input.type === "password" ? "Show" : "Hide";
+    });
+    label.append(toggle);
+  }
+  return input;
+}
+
+async function commitInputDraft(config, controls, wasIncomplete) {
+  if (inputSaveInProgress) return;
+  inputSaveInProgress = true;
+  setInteractionState();
+  try {
+    const values = collectInputValues(config, controls);
+    if (inputsReady(config.inputs, values)) {
+      for (const rule of config.rules) resolveRuntimeRule(rule, config.inputs, values);
+    }
+    await saveConfigInputs(config.id, config.importedAt, config.inputs, values, wasIncomplete);
+    clearInputDraft(config.id);
+    await notifyRuntimeConfig();
+    editingConfigId = null;
+    await render();
+  } catch (error) {
+    showError(error);
+  } finally {
+    inputSaveInProgress = false;
+    setInteractionState();
+  }
+}
+
+function collectRawInputValues(config, controls) {
+  const values = Object.create(null);
+  for (const id of Object.keys(config.inputs)) {
+    values[id] = controls[id].value;
+  }
+  return values;
+}
+
+function collectInputValues(config, controls) {
+  const values = Object.create(null);
+  for (const [id, descriptor] of Object.entries(config.inputs)) {
+    const control = controls[id];
+    const label = descriptor.name || id;
+    const raw = control.value;
+    if (descriptor.type === "string") {
+      if (raw !== "") values[id] = raw;
+    } else if (descriptor.type === "number") {
+      if (control.validity.badInput) throw new Error(`${label}: enter a valid finite number.`);
+      if (raw !== "") {
+        const number = Number(raw);
+        if (!Number.isFinite(number)) throw new Error(`${label}: enter a valid finite number.`);
+        values[id] = number;
+      }
+    } else if (raw !== "") {
+      values[id] = raw === "true";
+    }
+  }
+  return values;
 }
 
 function renderRoutingDetails(rule) {

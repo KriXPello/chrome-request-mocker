@@ -90,7 +90,7 @@
       try {
         rules.push({
           ...rule,
-          matcher: globToRegExp(rule.pattern)
+          matcher: rule.matcherSource ? new RegExp(rule.matcherSource) : globToRegExp(rule.pattern)
         });
       } catch (error) {
         console.warn(`[Chrome Request Mocker] Invalid pattern ${JSON.stringify(rule.pattern)}:`, error);

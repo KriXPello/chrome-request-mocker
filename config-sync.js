@@ -1,4 +1,5 @@
 import { replaceConfigsAfterSync } from "./db.js";
+import { normalizeInputs, validateTemplate } from "./inputs.js";
 
 export async function syncConfigsFromDirectory(directoryHandle) {
   const permission = await directoryHandle.queryPermission({ mode: "read" });
@@ -65,6 +66,7 @@ function validateConfig(value, filename) {
   if (typeof value.id !== "string" || !value.id.trim()) fail(filename, "id must be a non-empty string");
   if ("name" in value && typeof value.name !== "string") fail(filename, "name must be a string");
   if (!Array.isArray(value.rules)) fail(filename, '"rules" must be an array');
+  const inputs = normalizeInputs(value.inputs, filename);
   const ids = new Set();
   const rules = value.rules.map((rule, index) => {
     const prefix = `${filename}: rules[${index}]`;
@@ -74,6 +76,7 @@ function validateConfig(value, filename) {
     ids.add(rule.id);
     if ("name" in rule && typeof rule.name !== "string") fail(prefix, "name must be a string");
     if (typeof rule.pattern !== "string" || !rule.pattern) fail(prefix, "pattern must be a non-empty string");
+    validateTemplate(rule.pattern, inputs, `${prefix}.pattern`);
     if (("response" in rule) === ("responses" in rule)) fail(prefix, "exactly one of response or responses is required");
     let response;
     if ("responses" in rule) {
@@ -94,7 +97,13 @@ function validateConfig(value, filename) {
       response = normalizeResponse(rule.response, prefix);
     }
     const query = normalizeQuery(rule.query, prefix);
+    validateQueryTemplates(query, inputs, `${prefix}.query`);
     const routes = normalizeRoutes(rule.routes, response, query, prefix);
+    routes?.forEach((route, index) => validateQueryTemplates(route.query, inputs, `${prefix}.routes[${index}].query`));
+    for (const [responseIndex, item] of (Array.isArray(response) ? response : [response]).entries()) {
+      validateBodyTemplates(item.body, inputs, `${prefix}.response${Array.isArray(response) ? `s[${responseIndex}]` : ""}.body`);
+      for (const [header, text] of Object.entries(item.headers)) validateTemplate(text, inputs, `${prefix}.headers.${header}`);
+    }
     const delay = "delay" in rule ? rule.delay : 0;
     if (typeof delay !== "number" || !Number.isFinite(delay) || delay < 0) fail(prefix, "delay must be a finite number >= 0");
     let methods;
@@ -111,7 +120,19 @@ function validateConfig(value, filename) {
       ...(methods ? { methods } : {}), delay, ...(query ? { query } : {}),
       ...(routes ? { routes } : {}), ...(Array.isArray(response) ? { responses: response } : { response }) };
   });
-  return { id: value.id, ...(typeof value.name === "string" ? { name: value.name } : {}), rules };
+  return { id: value.id, ...(typeof value.name === "string" ? { name: value.name } : {}), ...(inputs ? { inputs } : {}), rules };
+}
+
+function validateBodyTemplates(value, inputs, location) {
+  if (typeof value === "string") { validateTemplate(value, inputs, location); return; }
+  if (Array.isArray(value)) { value.forEach((item, index) => validateBodyTemplates(item, inputs, `${location}[${index}]`)); return; }
+  if (value && typeof value === "object") for (const [key, item] of Object.entries(value)) validateBodyTemplates(item, inputs, `${location}.${key}`);
+}
+
+function validateQueryTemplates(query, inputs, location) {
+  for (const [index, alternative] of (query || []).entries()) for (const [name, patterns] of Object.entries(alternative)) {
+    patterns.forEach((pattern, patternIndex) => validateTemplate(pattern, inputs, `${location}[${index}].${name}[${patternIndex}]`));
+  }
 }
 
 function fail(filename, message) { throw new Error(`${filename}: ${message}`); }
@@ -122,7 +143,8 @@ function normalizeResponse(value, prefix, allowName = false, responseId = null) 
   const statusText = "statusText" in value ? value.statusText : "";
   if (typeof statusText !== "string" || !isValidHttpText(statusText)) fail(prefix, "response.statusText must be a valid HTTP status text");
   if ("headers" in value && !isPlainObject(value.headers)) fail(prefix, "response.headers must be an object");
-  const headers = { "Content-Type": "application/json" };
+  const headers = Object.create(null);
+  headers["Content-Type"] = "application/json";
   for (const [name, headerValue] of Object.entries(value.headers || {})) {
     if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name)) fail(prefix, `invalid response header name "${name}"`);
     if (typeof headerValue !== "string" || !isValidHttpText(headerValue)) fail(prefix, `invalid response header value for "${name}"`);

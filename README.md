@@ -19,9 +19,11 @@ Configs stay on your device, so you can edit them in your IDE, keep them in Git,
 5. Open the extension settings and select a folder with your mock configs.
 6. Click **Sync from folder**.
 7. Enable the configs and rules you need in the popup.
-8. Reload your application.
+8. Changes apply to open pages after sync; no reload is required.
 
 ## Examples
+
+Configs can declare required inputs, reference them as `${inputId}`, and keep their values locally in the popup instead of in JSON files. Unsaved edits are restored if the popup closes. See [input templates](docs/configuration.md#inputs-and-templates).
 
 ### Combining `*` and `**` in URL patterns
 
@@ -181,13 +183,15 @@ Add ordered `routes` when the request query parameters should select the respons
 | `GET /api/projects?status=unknown` | `fallback_response_id` |
 | `GET /api/projects` | `fallback_response_id` |
 
-Routes are checked in array order. A an optional final route without `query` acts as the fallback.
+Routes are checked in array order. An optional final route without `query` acts as the fallback.
 
 ## Sync workflow
 
-After changing config files, click **Sync** in the popup and reload the application page. Use Settings to choose the folder initially or change it later.
+After changing config files, click **Sync** in the popup. Changes apply to open pages immediately. Use Settings to choose the folder initially or change it later.
 
 Configs and individual rules can be enabled or disabled from the popup. Invalid files fail the complete sync and leave the previously imported snapshot unchanged.
+
+The extension icon badge shows the number of enabled, complete configs currently loaded by the runtime. An empty badge means that no configs are active.
 
 ## Documentation
 

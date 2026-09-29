@@ -101,6 +101,41 @@ summary input {
     margin-right: 5px;
 }
 
+.config > summary {
+    list-style-position: inside;
+    list-style-type: disclosure-closed;
+}
+
+.config[open] > summary {
+    list-style-type: disclosure-open;
+}
+.config-header-actions { float: right; display: inline-flex; gap: 6px; }
+.inputs-button { margin-left: auto; font-size: 12px; }
+.inputs-button.missing { color: #a12622; background: #fdecea; border-color: #d88; font-weight: 600; }
+.inputs-button.unsaved { color: #7a4b00; background: #fff3cd; border-color: #d5a73d; font-weight: 600; }
+.input-draft-indicator { align-self: center; color: #7a4b00; font-size: 11px; font-weight: 600; }
+.input-draft-indicator.error { color: #a12622; }
+.input-editor { margin: 10px 0 8px 24px; display: grid; gap: 9px; }
+.input-editor label { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(140px, 2fr) auto; align-items: center; gap: 8px; font-size: 13px; }
+.input-editor label input, .input-editor label select { min-width: 0; font: inherit; }
+.input-editor label button { justify-self: end; }
+
+@media (prefers-color-scheme: dark) {
+    .inputs-button.unsaved {
+        color: #ffd978;
+        background: #4a3813;
+        border-color: #8f7028;
+    }
+
+    .input-draft-indicator {
+        color: #ffd978;
+    }
+
+    .input-draft-indicator.error {
+        color: #ffaaa5;
+    }
+}
+
 .source {
     margin: 5px 0 8px 24px;
 }
