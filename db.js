@@ -158,6 +158,34 @@ export function setConfigEnabled(id, enabled) {
   }));
 }
 
+export function toggleAllConfigs() {
+  return withDb((db) => transaction(db, ["configs", "inputs"], "readwrite", (tx) => {
+    const configStore = tx.objectStore("configs");
+    const configRequest = configStore.getAll();
+    const inputRequest = tx.objectStore("inputs").getAll();
+    let configs;
+    let inputRows;
+    const applyToggle = () => {
+      if (!configs || !inputRows) return;
+      const valuesByConfig = new Map();
+      for (const { configId, inputId, value } of inputRows) {
+        if (!valuesByConfig.has(configId)) valuesByConfig.set(configId, Object.create(null));
+        valuesByConfig.get(configId)[inputId] = value;
+      }
+      const eligibleIds = new Set(configs.filter((config) =>
+        config.formatVersion === 3 && hasAllInputValues(config.inputs || {}, valuesByConfig.get(config.id) || {}))
+        .map((config) => config.id));
+      const enable = !configs.some((config) => config.enabled && eligibleIds.has(config.id));
+      for (const config of configs) {
+        config.enabled = enable && eligibleIds.has(config.id);
+        configStore.put(config);
+      }
+    };
+    configRequest.onsuccess = () => { configs = configRequest.result; applyToggle(); };
+    inputRequest.onsuccess = () => { inputRows = inputRequest.result; applyToggle(); };
+  }));
+}
+
 export function setConfigDisplayOrder(configIds) {
   return withDb((db) => transaction(db, ["configs"], "readwrite", (tx, abort) => {
     const store = tx.objectStore("configs");

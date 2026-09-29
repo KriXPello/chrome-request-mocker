@@ -6,11 +6,28 @@
 body {
     margin: 0;
     width: 480px;
+    max-height: 600px;
+    display: flex;
+    flex-direction: column;
 }
 
 main {
     padding: 14px;
+    min-height: 0;
+    overflow-y: auto;
 }
+
+.footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid #8885;
+    background: Canvas;
+    flex: none;
+}
+
+#reorder { margin-left: auto; }
 
 header {
     margin-bottom: 10px;

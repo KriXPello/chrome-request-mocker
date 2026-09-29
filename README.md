@@ -189,7 +189,7 @@ Routes are checked in array order. An optional final route without `query` acts 
 
 After changing config files, click **Sync** in the popup. Changes apply to open pages immediately. Use Settings to choose the folder initially or change it later.
 
-Configs and individual rules can be enabled or disabled from the popup. Expanded and collapsed configs retain their state when the popup is reopened. Use **Reorder** to switch to a compact list and move configs with the arrow buttons; the local order is preserved across syncs, and newly discovered configs are appended. Invalid files fail the complete sync and leave the previously imported snapshot unchanged.
+Configs and individual rules can be enabled or disabled from the popup. Invalid files fail the complete sync and leave the previously imported snapshot unchanged.
 
 The extension icon badge shows the number of enabled, complete configs currently loaded by the runtime. An empty badge means that no configs are active.
 

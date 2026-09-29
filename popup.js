@@ -1,4 +1,4 @@
-import { getDirectoryHandle, getConfigsAndSyncMeta, getConfigInputs, saveConfigInputs, setConfigDisplayOrder, setConfigEnabled, setRuleEnabled, setRuleResponseId } from "./db.js";
+import { getDirectoryHandle, getConfigsAndSyncMeta, getConfigInputs, saveConfigInputs, setConfigDisplayOrder, setConfigEnabled, setRuleEnabled, setRuleResponseId, toggleAllConfigs } from "./db.js";
 import { inputReadiness, inputsReady, resolveRuntimeRule } from "./inputs.js";
 import { syncConfigsFromDirectory } from "./config-sync.js";
 
@@ -7,6 +7,8 @@ const lastSyncElement = document.querySelector("#last-sync");
 const statusElement = document.querySelector("#status");
 const syncButton = document.querySelector("#sync");
 const reorderButton = document.querySelector("#reorder");
+const toggleAllButton = document.querySelector("#toggle-all");
+const collapseAllButton = document.querySelector("#collapse-all");
 const syncStatusElement = document.querySelector("#sync-status");
 const INPUT_DRAFT_PREFIX = "config-input-draft:";
 const COLLAPSED_CONFIG_PREFIX = "collapsed-config:";
@@ -15,12 +17,15 @@ let syncInProgress = false;
 let editingConfigId = null;
 let inputSaveInProgress = false;
 let configOrderUpdateInProgress = false;
+let configToggleInProgress = false;
 let displayedConfigIds = [];
 let reorderMode = false;
 let renderVersion = 0;
 document.querySelector("#settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 syncButton.addEventListener("click", syncFromFolder);
 reorderButton.addEventListener("click", toggleReorderMode);
+toggleAllButton.addEventListener("click", toggleConfigs);
+collapseAllButton.addEventListener("click", toggleCollapsedConfigs);
 await initialize();
 
 async function initialize() {
@@ -99,20 +104,35 @@ async function syncFromFolder() {
 }
 
 function setInteractionState() {
-  syncButton.disabled = syncInProgress || configOrderUpdateInProgress || editingConfigId !== null;
-  reorderButton.disabled = syncInProgress || inputSaveInProgress || configOrderUpdateInProgress
+  syncButton.disabled = syncInProgress || configToggleInProgress || configOrderUpdateInProgress || editingConfigId !== null;
+  reorderButton.disabled = syncInProgress || inputSaveInProgress || configToggleInProgress || configOrderUpdateInProgress
     || editingConfigId !== null || reorderButton.dataset.unavailable === "true";
+  if (reorderMode) {
+    toggleAllButton.disabled = true;
+    collapseAllButton.disabled = true;
+  } else {
+    const configs = [...configsElement.querySelectorAll(".config")];
+    const readyConfigs = configs.filter((element) => element.dataset.inputsMissing === "false"
+      && !element.querySelector(".snapshot-warning"));
+    const anyEnabled = readyConfigs.some((element) => element.querySelector(".config-toggle").checked);
+    toggleAllButton.textContent = anyEnabled ? "Disable all" : "Enable all";
+    toggleAllButton.disabled = syncInProgress || inputSaveInProgress || configToggleInProgress
+      || configOrderUpdateInProgress || editingConfigId !== null || readyConfigs.length === 0;
+    collapseAllButton.textContent = configs.some((element) => element.open) ? "Collapse all" : "Expand all";
+    collapseAllButton.disabled = syncInProgress || inputSaveInProgress || configToggleInProgress
+      || configOrderUpdateInProgress || editingConfigId !== null || configs.length === 0;
+  }
   configsElement.querySelectorAll(".config").forEach((configElement) => {
     const oldSnapshot = configElement.querySelector(".snapshot-warning") !== null;
     const inputsMissing = configElement.dataset.inputsMissing === "true";
     const editor = configElement.querySelector(".input-editor");
     configElement.querySelectorAll("input, select").forEach((control) => {
-      control.disabled = syncInProgress || inputSaveInProgress || configOrderUpdateInProgress || oldSnapshot
+      control.disabled = syncInProgress || inputSaveInProgress || configToggleInProgress || configOrderUpdateInProgress || oldSnapshot
         || (inputsMissing && control.classList.contains("config-toggle"))
         || (editingConfigId !== null && !editor?.contains(control));
     });
     configElement.querySelectorAll("button").forEach((button) => {
-      button.disabled = syncInProgress || inputSaveInProgress || configOrderUpdateInProgress || oldSnapshot
+      button.disabled = syncInProgress || inputSaveInProgress || configToggleInProgress || configOrderUpdateInProgress || oldSnapshot
         || button.dataset.unavailable === "true"
         || (editingConfigId !== null && !editor);
     });
@@ -125,6 +145,7 @@ function renderConfig(config, values = {}, draftValues = null) {
   const inputsMissing = readiness.missing > 0;
   const wrapper = document.createElement("details");
   wrapper.className = "config";
+  wrapper.dataset.configId = config.id;
   wrapper.dataset.inputsMissing = String(inputsMissing);
   const collapsedKey = `${COLLAPSED_CONFIG_PREFIX}${config.id}`;
   wrapper.open = localStorage.getItem(collapsedKey) !== "true";
@@ -138,6 +159,7 @@ function renderConfig(config, values = {}, draftValues = null) {
     } else {
       localStorage.setItem(collapsedKey, "true");
     }
+    setInteractionState();
   });
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
@@ -287,11 +309,44 @@ function renderConfigOrderRow(config, index, configCount) {
 }
 
 function toggleReorderMode() {
-  if (syncInProgress || inputSaveInProgress || configOrderUpdateInProgress || editingConfigId !== null) return;
+  if (syncInProgress || inputSaveInProgress || configToggleInProgress
+    || configOrderUpdateInProgress || editingConfigId !== null) return;
   reorderMode = !reorderMode;
   reorderButton.textContent = reorderMode ? "Done" : "Reorder";
   reorderButton.setAttribute("aria-pressed", String(reorderMode));
   render();
+}
+
+function toggleCollapsedConfigs() {
+  if (collapseAllButton.disabled) return;
+  const configs = [...configsElement.querySelectorAll(".config")];
+  const expand = !configs.some((element) => element.open);
+  for (const element of configs) {
+    const key = `${COLLAPSED_CONFIG_PREFIX}${element.dataset.configId}`;
+    element.open = expand;
+    if (expand) {
+      localStorage.removeItem(key);
+    } else {
+      localStorage.setItem(key, "true");
+    }
+  }
+  setInteractionState();
+}
+
+async function toggleConfigs() {
+  if (toggleAllButton.disabled) return;
+  configToggleInProgress = true;
+  setInteractionState();
+  try {
+    await toggleAllConfigs();
+    await notifyRuntimeConfig();
+    await render();
+  } catch (error) {
+    showError(error);
+  } finally {
+    configToggleInProgress = false;
+    setInteractionState();
+  }
 }
 
 function makeOrderAction(text, label, unavailable, action) {
@@ -312,7 +367,8 @@ function makeOrderAction(text, label, unavailable, action) {
 }
 
 async function moveConfig(configId, offset) {
-  if (!reorderMode || syncInProgress || inputSaveInProgress || configOrderUpdateInProgress || editingConfigId !== null) return;
+  if (!reorderMode || syncInProgress || inputSaveInProgress || configToggleInProgress
+    || configOrderUpdateInProgress || editingConfigId !== null) return;
   const currentIndex = displayedConfigIds.indexOf(configId);
   const targetIndex = currentIndex + offset;
   if (currentIndex < 0 || targetIndex < 0 || targetIndex >= displayedConfigIds.length) return;
@@ -638,9 +694,10 @@ async function updateResponse(config, rule, select) {
 }
 
 async function updateConfig(config, checkbox) {
-  if (syncInProgress) return;
+  if (syncInProgress || configToggleInProgress) return;
   const previous = !checkbox.checked;
-  checkbox.disabled = true;
+  configToggleInProgress = true;
+  setInteractionState();
   try {
     await setConfigEnabled(config.id, checkbox.checked);
     await notifyRuntimeConfig();
@@ -648,7 +705,8 @@ async function updateConfig(config, checkbox) {
     checkbox.checked = previous;
     showError(error);
   } finally {
-    checkbox.disabled = syncInProgress;
+    configToggleInProgress = false;
+    setInteractionState();
   }
 }
 
