@@ -110,6 +110,10 @@ summary input {
     list-style-type: disclosure-open;
 }
 .config-header-actions { float: right; display: inline-flex; gap: 6px; }
+.config-order-row { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+.config-order-row .config-header-actions { float: none; margin-left: auto; }
+.config-order-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.config-order-button { width: 20px; height: 20px; padding: 0; font-size: 12px; line-height: 18px; }
 .inputs-button { margin-left: auto; font-size: 12px; }
 .inputs-button.missing { color: #a12622; background: #fdecea; border-color: #d88; font-weight: 600; }
 .inputs-button.unsaved { color: #7a4b00; background: #fff3cd; border-color: #d5a73d; font-weight: 600; }

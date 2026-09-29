@@ -1,4 +1,4 @@
-import { getDirectoryHandle, getConfigsAndSyncMeta, getConfigInputs, saveConfigInputs, setConfigEnabled, setRuleEnabled, setRuleResponseId } from "./db.js";
+import { getDirectoryHandle, getConfigsAndSyncMeta, getConfigInputs, saveConfigInputs, setConfigDisplayOrder, setConfigEnabled, setRuleEnabled, setRuleResponseId } from "./db.js";
 import { inputReadiness, inputsReady, resolveRuntimeRule } from "./inputs.js";
 import { syncConfigsFromDirectory } from "./config-sync.js";
 
@@ -6,14 +6,21 @@ const configsElement = document.querySelector("#configs");
 const lastSyncElement = document.querySelector("#last-sync");
 const statusElement = document.querySelector("#status");
 const syncButton = document.querySelector("#sync");
+const reorderButton = document.querySelector("#reorder");
 const syncStatusElement = document.querySelector("#sync-status");
 const INPUT_DRAFT_PREFIX = "config-input-draft:";
+const COLLAPSED_CONFIG_PREFIX = "collapsed-config:";
 let directoryHandle = null;
 let syncInProgress = false;
 let editingConfigId = null;
 let inputSaveInProgress = false;
+let configOrderUpdateInProgress = false;
+let displayedConfigIds = [];
+let reorderMode = false;
+let renderVersion = 0;
 document.querySelector("#settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 syncButton.addEventListener("click", syncFromFolder);
+reorderButton.addEventListener("click", toggleReorderMode);
 await initialize();
 
 async function initialize() {
@@ -27,19 +34,29 @@ async function initialize() {
 }
 
 async function render() {
+  const version = ++renderVersion;
   try {
     const { configs, meta } = await getConfigsAndSyncMeta();
+    if (version !== renderVersion) return;
     let lastSync = "Never";
     if (meta?.lastSyncAt) {
       lastSync = formatDate(meta.lastSyncAt);
     }
     lastSyncElement.textContent = `Last sync: ${lastSync}`;
-    configs.sort((a, b) => a.sourceFile.localeCompare(b.sourceFile));
-    const values = await Promise.all(configs.map((config) => getConfigInputs(config.id)));
-    cleanupInputDrafts(new Set(configs.map((config) => config.id)));
-    const drafts = configs.map((config, index) => readInputDraft(config, values[index]));
-    configsElement.replaceChildren(...configs.map((config, index) =>
-      renderConfig(config, values[index], drafts[index])));
+    displayedConfigIds = configs.map((config) => config.id);
+    cleanupCollapsedConfigs(new Set(displayedConfigIds));
+    reorderButton.dataset.unavailable = String(configs.length < 2 && !reorderMode);
+    if (reorderMode) {
+      configsElement.replaceChildren(...configs.map((config, index) =>
+        renderConfigOrderRow(config, index, configs.length)));
+    } else {
+      const values = await Promise.all(configs.map((config) => getConfigInputs(config.id)));
+      if (version !== renderVersion) return;
+      cleanupInputDrafts(new Set(configs.map((config) => config.id)));
+      const drafts = configs.map((config, index) => readInputDraft(config, values[index]));
+      configsElement.replaceChildren(...configs.map((config, index) =>
+        renderConfig(config, values[index], drafts[index])));
+    }
     setInteractionState();
     const hasOldSnapshot = configs.some((config) => (config.formatVersion ?? 0) < 3);
     if (hasOldSnapshot) {
@@ -82,18 +99,21 @@ async function syncFromFolder() {
 }
 
 function setInteractionState() {
-  syncButton.disabled = syncInProgress || editingConfigId !== null;
+  syncButton.disabled = syncInProgress || configOrderUpdateInProgress || editingConfigId !== null;
+  reorderButton.disabled = syncInProgress || inputSaveInProgress || configOrderUpdateInProgress
+    || editingConfigId !== null || reorderButton.dataset.unavailable === "true";
   configsElement.querySelectorAll(".config").forEach((configElement) => {
     const oldSnapshot = configElement.querySelector(".snapshot-warning") !== null;
     const inputsMissing = configElement.dataset.inputsMissing === "true";
     const editor = configElement.querySelector(".input-editor");
     configElement.querySelectorAll("input, select").forEach((control) => {
-      control.disabled = syncInProgress || inputSaveInProgress || oldSnapshot
+      control.disabled = syncInProgress || inputSaveInProgress || configOrderUpdateInProgress || oldSnapshot
         || (inputsMissing && control.classList.contains("config-toggle"))
         || (editingConfigId !== null && !editor?.contains(control));
     });
     configElement.querySelectorAll("button").forEach((button) => {
-      button.disabled = syncInProgress || inputSaveInProgress || oldSnapshot
+      button.disabled = syncInProgress || inputSaveInProgress || configOrderUpdateInProgress || oldSnapshot
+        || button.dataset.unavailable === "true"
         || (editingConfigId !== null && !editor);
     });
   });
@@ -106,8 +126,19 @@ function renderConfig(config, values = {}, draftValues = null) {
   const wrapper = document.createElement("details");
   wrapper.className = "config";
   wrapper.dataset.inputsMissing = String(inputsMissing);
-  wrapper.open = true;
+  const collapsedKey = `${COLLAPSED_CONFIG_PREFIX}${config.id}`;
+  wrapper.open = localStorage.getItem(collapsedKey) !== "true";
   const summary = document.createElement("summary");
+  summary.addEventListener("click", (event) => {
+    if (event.target.closest("button, input, select")) return;
+    event.preventDefault();
+    wrapper.open = !wrapper.open;
+    if (wrapper.open) {
+      localStorage.removeItem(collapsedKey);
+    } else {
+      localStorage.setItem(collapsedKey, "true");
+    }
+  });
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
   checkbox.className = "config-toggle";
@@ -121,22 +152,22 @@ function renderConfig(config, values = {}, draftValues = null) {
   const title = document.createElement("span");
   title.textContent = ` ${config.name || config.id}`;
   summary.append(checkbox, title);
-  if (config.inputs && Object.keys(config.inputs).length) {
-    const actions = document.createElement("span");
-    actions.className = "config-header-actions";
-    if (editingConfigId === config.id) {
-      const draftIndicator = document.createElement("span");
-      draftIndicator.className = "input-draft-indicator";
-      draftIndicator.textContent = "Unsaved";
-      draftIndicator.hidden = draftValues === null;
-      actions.append(draftIndicator);
-      actions.append(makeEditorAction("Save", () => commitInputDraft(config, editorControls, inputsMissing)));
-      actions.append(makeEditorAction("Cancel", () => {
-        clearInputDraft(config.id);
-        editingConfigId = null;
-        render();
-      }));
-    } else {
+  const actions = document.createElement("span");
+  actions.className = "config-header-actions";
+  if (editingConfigId === config.id) {
+    const draftIndicator = document.createElement("span");
+    draftIndicator.className = "input-draft-indicator";
+    draftIndicator.textContent = "Unsaved";
+    draftIndicator.hidden = draftValues === null;
+    actions.append(draftIndicator);
+    actions.append(makeEditorAction("Save", () => commitInputDraft(config, editorControls, inputsMissing)));
+    actions.append(makeEditorAction("Cancel", () => {
+      clearInputDraft(config.id);
+      editingConfigId = null;
+      render();
+    }));
+  } else {
+    if (config.inputs && Object.keys(config.inputs).length) {
       const editButton = document.createElement("button");
       editButton.type = "button";
       if (draftValues) {
@@ -156,9 +187,9 @@ function renderConfig(config, values = {}, draftValues = null) {
       });
       actions.append(editButton);
     }
-    actions.addEventListener("click", (event) => { if (event.target.closest("button")) event.stopPropagation(); });
-    summary.append(actions);
   }
+  actions.addEventListener("click", (event) => { if (event.target.closest("button")) event.stopPropagation(); });
+  summary.append(actions);
   wrapper.append(summary);
   if (oldSnapshot) {
     const warning = document.createElement("div");
@@ -237,6 +268,68 @@ function renderConfig(config, values = {}, draftValues = null) {
   }
   wrapper.append(rules);
   return wrapper;
+}
+
+function renderConfigOrderRow(config, index, configCount) {
+  const row = document.createElement("div");
+  row.className = "config config-order-row";
+  const title = document.createElement("span");
+  title.className = "config-order-title";
+  title.textContent = config.name || config.id;
+  const actions = document.createElement("span");
+  actions.className = "config-header-actions";
+  actions.append(makeOrderAction("↑", `Move ${config.name || config.id} up`, index === 0,
+    () => moveConfig(config.id, -1)));
+  actions.append(makeOrderAction("↓", `Move ${config.name || config.id} down`, index === configCount - 1,
+    () => moveConfig(config.id, 1)));
+  row.append(title, actions);
+  return row;
+}
+
+function toggleReorderMode() {
+  if (syncInProgress || inputSaveInProgress || configOrderUpdateInProgress || editingConfigId !== null) return;
+  reorderMode = !reorderMode;
+  reorderButton.textContent = reorderMode ? "Done" : "Reorder";
+  reorderButton.setAttribute("aria-pressed", String(reorderMode));
+  render();
+}
+
+function makeOrderAction(text, label, unavailable, action) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "config-order-button";
+  button.textContent = text;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.dataset.unavailable = String(unavailable);
+  button.disabled = unavailable;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    action();
+  });
+  return button;
+}
+
+async function moveConfig(configId, offset) {
+  if (!reorderMode || syncInProgress || inputSaveInProgress || configOrderUpdateInProgress || editingConfigId !== null) return;
+  const currentIndex = displayedConfigIds.indexOf(configId);
+  const targetIndex = currentIndex + offset;
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= displayedConfigIds.length) return;
+
+  const nextOrder = [...displayedConfigIds];
+  [nextOrder[currentIndex], nextOrder[targetIndex]] = [nextOrder[targetIndex], nextOrder[currentIndex]];
+  configOrderUpdateInProgress = true;
+  setInteractionState();
+  try {
+    await setConfigDisplayOrder(nextOrder);
+    await render();
+  } catch (error) {
+    showError(error);
+  } finally {
+    configOrderUpdateInProgress = false;
+    setInteractionState();
+  }
 }
 
 function makeEditorAction(text, action) {
@@ -328,6 +421,15 @@ function cleanupInputDrafts(configIds) {
   for (let index = localStorage.length - 1; index >= 0; index -= 1) {
     const key = localStorage.key(index);
     if (key?.startsWith(INPUT_DRAFT_PREFIX) && !configIds.has(key.slice(INPUT_DRAFT_PREFIX.length))) {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
+function cleanupCollapsedConfigs(configIds) {
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (key?.startsWith(COLLAPSED_CONFIG_PREFIX) && !configIds.has(key.slice(COLLAPSED_CONFIG_PREFIX.length))) {
       localStorage.removeItem(key);
     }
   }

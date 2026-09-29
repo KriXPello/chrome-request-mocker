@@ -158,6 +158,30 @@ export function setConfigEnabled(id, enabled) {
   }));
 }
 
+export function setConfigDisplayOrder(configIds) {
+  return withDb((db) => transaction(db, ["configs"], "readwrite", (tx, abort) => {
+    const store = tx.objectStore("configs");
+    const request = store.getAll();
+    request.onsuccess = () => {
+      const configs = request.result || [];
+      const requestedIds = new Set(configIds);
+      const hasEveryConfig = configs.length === configIds.length
+        && requestedIds.size === configIds.length
+        && configs.every((config) => requestedIds.has(config.id));
+      if (!hasEveryConfig) {
+        abort(new Error("The config list changed while it was being reordered. Try again."));
+        return;
+      }
+      const configsById = new Map(configs.map((config) => [config.id, config]));
+      configIds.forEach((id, displayOrder) => {
+        const config = configsById.get(id);
+        config.displayOrder = displayOrder;
+        store.put(config);
+      });
+    };
+  }));
+}
+
 export function setRuleEnabled(configId, ruleId, enabled) {
   return withDb((db) => transaction(db, ["configs"], "readwrite", (tx) => {
     const store = tx.objectStore("configs");
@@ -203,7 +227,7 @@ export function getConfigsAndSyncMeta() {
     const metaRequest = tx.objectStore("meta").get("sync");
     let configs;
     let meta;
-    configsRequest.onsuccess = () => { configs = configsRequest.result || []; };
+    configsRequest.onsuccess = () => { configs = sortConfigsForDisplay(configsRequest.result || []); };
     metaRequest.onsuccess = () => { meta = metaRequest.result ?? null; };
     tx.oncomplete = () => resolve({ configs, meta });
     tx.onerror = () => reject(tx.error);
@@ -223,9 +247,19 @@ export function replaceConfigsAfterSync(configs, meta) {
     const applyReplacement = () => {
       if (!oldConfigs || !inputRows) return;
       const old = new Map(oldConfigs.map((config) => [config.id, config]));
+      const previousDisplayOrder = new Map(sortConfigsForDisplay(oldConfigs)
+        .map((config, index) => [config.id, index]));
+      const configsInDisplayOrder = [...configs].sort((left, right) => {
+        const leftOrder = previousDisplayOrder.get(left.id);
+        const rightOrder = previousDisplayOrder.get(right.id);
+        if (leftOrder !== undefined && rightOrder !== undefined) return leftOrder - rightOrder;
+        if (leftOrder !== undefined) return -1;
+        if (rightOrder !== undefined) return 1;
+        return compareConfigSource(left, right);
+      });
       const storedValues = new Map(inputRows.map((item) => [`${item.configId}\0${item.inputId}`, item.value]));
       configsStore.clear();
-      for (const config of configs) {
+      configsInDisplayOrder.forEach((config, displayOrder) => {
         const previous = old.get(config.id);
         const oldRules = new Map((previous?.rules || []).map((rule) => [rule.id, rule]));
         const previousInputsComplete = Object.entries(previous?.inputs || {}).every(([inputId, descriptor]) => {
@@ -239,7 +273,7 @@ export function replaceConfigsAfterSync(configs, meta) {
             && isValidInputValue(descriptor.type, storedValues.get(key));
         });
         const enabled = Boolean(previous?.enabled) && previousInputsComplete && inputsComplete;
-        configsStore.put({ ...config, enabled,
+        configsStore.put({ ...config, enabled, displayOrder,
           rules: config.rules.map((rule) => {
             const oldRule = oldRules.get(rule.id);
             const selectedResponseId = Array.isArray(rule.responses) && oldRule
@@ -248,7 +282,7 @@ export function replaceConfigsAfterSync(configs, meta) {
             return { ...rule, enabled: oldRule ? Boolean(oldRule.enabled) : true,
               ...(Array.isArray(rule.responses) && !rule.routes ? { selectedResponseId } : {}) };
           }) });
-      }
+      });
       metaStore.put(meta);
       const valid = new Set();
       for (const config of configs) for (const [inputId, descriptor] of Object.entries(config.inputs || {})) {
@@ -260,4 +294,22 @@ export function replaceConfigsAfterSync(configs, meta) {
     oldRequest.onsuccess = () => { oldConfigs = oldRequest.result; applyReplacement(); };
     storedInputs.onsuccess = () => { inputRows = storedInputs.result; applyReplacement(); };
   }));
+}
+
+function sortConfigsForDisplay(configs) {
+  return [...configs].sort((left, right) => {
+    const leftHasOrder = Number.isInteger(left.displayOrder) && left.displayOrder >= 0;
+    const rightHasOrder = Number.isInteger(right.displayOrder) && right.displayOrder >= 0;
+    if (leftHasOrder && rightHasOrder && left.displayOrder !== right.displayOrder) {
+      return left.displayOrder - right.displayOrder;
+    }
+    if (leftHasOrder !== rightHasOrder) return leftHasOrder ? -1 : 1;
+    return compareConfigSource(left, right);
+  });
+}
+
+function compareConfigSource(left, right) {
+  const bySource = left.sourceFile.localeCompare(right.sourceFile);
+  if (bySource !== 0) return bySource;
+  return left.id.localeCompare(right.id);
 }
