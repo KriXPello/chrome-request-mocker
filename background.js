@@ -1,4 +1,4 @@
-import { getConfigsAndSyncMeta, getConfigInputs } from "./db.js";
+import { getConfigsAndSyncMeta, getConfigInputs, getLoggingMode } from "./db.js";
 import { inputsReady, resolveRuntimeRule } from "./inputs.js";
 
 let runtimeRevision = 0;
@@ -76,7 +76,7 @@ async function sendRuntimeUpdate(tabId, message) {
 
 async function loadRuntimeConfig() {
   try {
-    const { configs, meta } = await getConfigsAndSyncMeta();
+    const [{ configs, meta }, loggingMode] = await Promise.all([getConfigsAndSyncMeta(), getLoggingMode()]);
     const candidates = configs.filter((config) => config.enabled && config.formatVersion === 3).sort((a, b) =>
       a.sourceFile.localeCompare(b.sourceFile));
     const active = [];
@@ -93,8 +93,6 @@ async function loadRuntimeConfig() {
               const selected = runtimeRule.responses.find((response) => response.id === rule.selectedResponseId)
                 || runtimeRule.responses[0];
               runtimeRule.response = { ...selected };
-              delete runtimeRule.response.id;
-              delete runtimeRule.response.name;
               delete runtimeRule.responses;
               delete runtimeRule.selectedResponseId;
             }
@@ -105,7 +103,7 @@ async function loadRuntimeConfig() {
         }
       }
     }
-    return { ok: true, config: { rules }, activeConfigCount: active.length,
+    return { ok: true, config: { rules, loggingMode }, activeConfigCount: active.length,
       activeRuleCount: rules.length, lastSyncAt: meta?.lastSyncAt ?? null };
   } catch (error) {
     return { ok: false, code: "database-error", error: error instanceof Error ? error.message : String(error) };

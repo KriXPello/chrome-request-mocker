@@ -1,6 +1,10 @@
 # Configuration
 
-Chrome Request Mocker reads JSON files from the selected folder (not subdirectories). Files are sorted by filename and rules by array order; the first enabled match wins. Sync validates every file atomically. 
+Chrome Request Mocker reads JSON configs from the selected folder.
+
+- Subfolders are ignored.
+- The first enabled matching rule wins.
+- Sync applies changes only if every file is valid.
 
 ## Config and rule
 
@@ -29,13 +33,13 @@ Each rule uses one of three forms.
 - `rules[].name` - optional, rule name shown in the popup; `rules[].id` is used when omitted
 - `rules[].pattern` - required, URL glob matched against the absolute URL without query or hash
 - `rules[].methods` - optional, non-empty array of HTTP methods; all methods are matched when omitted
-- `rules[].delay` - optional, response delay in milliseconds; defaults to `0`
+- `rules[].delay` - optional, response delay in milliseconds: a number or `{ "min": number, "max": number }`; defaults to `0`. See [Response delay](#response-delay).
+
+In the popup, a colored strip beside each rule shows its methods. Hover for the list; omitted `methods` shows “All methods”.
 
 ### Rule Form 1 - one response
 
-The simplest rule. It always returns one fixed response.
-
-An optional `query` limits which requests match the rule.
+Returns one fixed response. Add `query` to limit which requests match.
 
 ```json
 {
@@ -57,15 +61,14 @@ An optional `query` limits which requests match the rule.
 - `response.status` - optional, HTTP status code; defaults to `200`
 - `response.statusText` - optional, HTTP status text; defaults to an empty string
 - `response.headers` - optional, HTTP headers; defaults to `Content-Type: application/json`
+- `response.delay` - optional, overrides the rule's delay; uses the same number or range format
 - `query` - optional, query conditions that determine whether the rule matches
 
 Statuses `204`, `205`, and `304` require `body: null`.
 
 ### Rule Form 2 - manually selected responses
 
-Use this form to manually switch between predefined response variants in the extension popup.
-The selected response is stored by its `id`, so reordering the array does not change the selection.
-An optional `query` applies to the whole rule and does not select a response.
+Choose a response variant in the popup.
 
 ```json
 {
@@ -81,13 +84,19 @@ An optional `query` applies to the whole rule and does not select a response.
 - `responses` - required, non-empty array of response objects
 - `responses[].id` - required, response identifier unique within the rule
 - `responses[].name` - optional, response name shown in the popup; `id` is used when omitted
-- `query` - optional, query conditions that determine whether the rule matches
+- `query` - optional, limits requests for the whole rule; does not select a response
 
-Each item in `responses` uses the same `body`, `status`, `statusText`, and `headers` fields as a single `response`. Response `id` and `name` are configuration metadata and are not sent as part of the HTTP response. New rules select the first response; sync preserves the selected ID and falls back to the first response if that ID disappears.
+Response fields are the same as for a single `response`: `body`, `status`, `statusText`, `headers`, and `delay`. Fields `id`, `name`, and `delay` are metadata, not HTTP response content.
+
+Selection:
+
+- New rules select the first response.
+- Selection is stored by `id`; reordering changes nothing.
+- Sync keeps the selected ID, or selects the first response if that ID was removed.
 
 ### Rule Form 3 - automatically routed responses
 
-Use this form when the response must be selected automatically from the request query parameters. Routes are checked in order, and the first matching route selects its response.
+Select a response by request query parameters. The first matching route wins.
 
 ```json
 {
@@ -109,25 +118,66 @@ Use this form when the response must be selected automatically from the request 
 - `routes[].query` - optional, query conditions for the route; omitting it creates a fallback route
 - `routes[].responseId` - required, ID of a response from the rule's `responses` array
 
-A routed rule does not use a rule-level `query`; query conditions belong to individual routes.
+Constraints:
 
-At most one fallback route is allowed, and it must be last. If no route matches and there is no fallback, evaluation continues with the next rule.
+- Put `query` on routes, not on the rule.
+- At most one fallback route is allowed; it must be last.
+- No matching route and no fallback: continue to the next rule.
 
 The popup displays `Automatic · N routes` instead of a response selector.
 
+## Response delay
+
+Set `delay` on a rule, its single `response`, or any item in `responses`. Both formats use milliseconds:
+
+- `500` — fixed delay.
+- `{ "min": 200, "max": 800 }` — uniformly random delay, picked anew for each request after selecting its response.
+
+Constraints:
+
+- Fixed delays and range boundaries must be finite, non-negative numbers.
+- Ranges require both `min` and `max`, with `min <= max`.
+
+Priority:
+
+1. Response `delay`, if set — even `0`.
+2. Otherwise, rule `delay`.
+3. Otherwise, `0`.
+
+Delays are not added together.
+
+```json
+{
+  "id": "projects",
+  "pattern": "**/api/projects",
+  "delay": { "min": 200, "max": 800 },
+  "responses": [
+    { "id": "success", "body": { "items": [] } },
+    { "id": "slow", "delay": 3000, "body": { "items": [] } },
+    { "id": "instant", "delay": 0, "body": { "items": [] } }
+  ]
+}
+```
+
 ## Rules toggle
 
-Configs are disabled by default, and new rules are enabled by default. Enabled state is stored locally and preserved by config and rule IDs across sync.
+- Configs are disabled by default; new rules are enabled.
+- Toggle state is stored locally and survives sync while config and rule IDs stay the same.
 
 ## Inputs and templates
 
-An optional top-level `inputs` object declares values that belong to the local browser profile rather than the JSON file. Every declared input is required. Input IDs must match `[A-Za-z_][A-Za-z0-9_]*`.
+Declare inputs in the optional top-level `inputs` object; enter their values in the popup, not the JSON file.
+
+- Every declared input is required.
+- Values are local to your browser profile.
+- Input IDs must match `[A-Za-z_][A-Za-z0-9_]*`.
 
 Each descriptor accepts only these fields:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `name` | input ID | Non-empty label shown in the popup |
+| `description` | omitted | Tooltip on the `?` icon after the input label in the popup |
 | `type` | `"string"` | One of `"string"`, `"number"`, or `"boolean"` |
 | `masked` | `false` | Uses a password control in the popup; may be specified only for string inputs |
 
@@ -135,7 +185,7 @@ Each descriptor accepts only these fields:
 {
   "id": "tenant-api",
   "inputs": {
-    "tenant": { "name": "Tenant ID" },
+    "tenant": { "name": "Tenant ID", "description": "Tenant whose API responses should be mocked" },
     "token": { "name": "Access token", "masked": true },
     "limit": { "type": "number" },
     "preview": { "type": "boolean" }
@@ -159,7 +209,12 @@ Each descriptor accepts only these fields:
 }
 ```
 
-`${id}` inserts a declared input. `$${id}` emits the literal text `${id}`. Unknown references and malformed active placeholders reject the complete sync.
+| Syntax | Result |
+| --- | --- |
+| `${id}` | Value of the declared input |
+| `$${id}` | Literal text `${id}` |
+
+Unknown inputs or malformed placeholders reject the entire sync.
 
 Substitution is performed only in:
 
@@ -168,27 +223,83 @@ Substitution is performed only in:
 - string values anywhere inside a response `body`;
 - response header values.
 
-Object keys and structural fields such as IDs, names, methods, status, and status text are not templates. An exact body value such as `"${limit}"` preserves the input type, so the example returns a JSON number and boolean. A composite body value such as `"Tenant ${tenant}"` and every header value produce strings.
+Object keys and structural fields (`id`, `name`, `methods`, `status`, `statusText`, etc.) are not templates.
 
-Inserted values are always literal and are never parsed again as templates. In `pattern` and `query`, wildcard characters supplied by an input do not become wildcards. For example, a `tenant` value of `team-*` matches the literal text `team-*`.
+Body value types:
+
+| Example | Result type |
+| --- | --- |
+| `"${limit}"` | Number, matching the input type |
+| `"${preview}"` | Boolean, matching the input type |
+| `"Tenant ${tenant}"` | String |
+
+Header values always produce strings.
+
+Inserted values are literal:
+
+- They are never parsed again as templates.
+- In `pattern` and `query`, input wildcards stay literal: `team-*` matches the text `team-*`.
 
 ### Editing and persistence
 
-Open **Inputs** in the config header in the popup, edit the complete set, and use **Save** or **Cancel** in that same header. Saving replaces all locally stored values for that config in one operation. Incomplete sets may be saved, but doing so disables the config. Its checkbox remains disabled until every input has a value; after completing the inputs, enable the config manually. Empty strings are missing, numbers must be finite, and booleans distinguish **Not set** from `true` and `false`.
+1. Open **Inputs** in the config header.
+2. Edit the values.
+3. Click **Save** or **Cancel** in the same header.
 
-Edits are written to a local draft immediately as fields change. If the popup closes, the **Inputs · Unsaved** marker remains and reopening the editor restores the draft. **Save** validates and commits the complete editor state; **Cancel** discards the draft and restores the last saved values. Draft fields survive a config sync while their input IDs and types remain compatible, and incompatible or deleted fields are discarded.
+| Action | Effect |
+| --- | --- |
+| **Save** | Validates and replaces the config's entire local input set at once |
+| **Cancel** | Discards the draft and restores saved values |
 
-Values are keyed by config ID and input ID and are stored separately from the synchronized config snapshot. Sync preserves a value when the config ID, input ID, and type are unchanged. It removes values for deleted configs or inputs and for inputs whose type changed. Changing only `name` or `masked` preserves the value. If a sync makes the input set incomplete, the config is automatically disabled.
+**Incomplete inputs**
 
-Masked inputs only hide the text in the popup. Saved values and unsaved drafts are not encrypted. When an enabled config is ready, its resolved runtime rules are delivered to pages so the mocker can match requests and construct responses; see [Runtime data visibility](limitations.md#runtime-data-visibility).
+- An empty string counts as missing; numbers must be finite.
+- Booleans distinguish **Not set**, `true`, and `false`.
+- Saving incomplete inputs disables the config.
+- The config checkbox stays disabled until all inputs are filled. Then enable it manually.
+
+**Drafts**
+
+- Edits are saved locally as you type.
+- Closing the popup keeps the draft and the **Inputs · Unsaved** marker.
+- Reopening **Inputs** restores the draft.
+
+**After sync**
+
+Values are stored separately from configs, by config ID and input ID.
+
+| Change | Saved values and drafts |
+| --- | --- |
+| Same config ID, input ID, and type | Kept |
+| Only `name`, `description`, or `masked` changed | Kept |
+| Input type changed, or input/config deleted | Removed |
+
+If sync leaves inputs incomplete, the config is disabled automatically.
+
+**Security**
+
+- `masked` hides text in the popup; saved values and drafts are **not encrypted**.
+- Ready, enabled configs send resolved rules to pages. See [Runtime data visibility](limitations.md#runtime-data-visibility).
 
 ## URL patterns
 
-Patterns match the absolute URL without query or hash. `*` matches any characters except `/`, `**` matches any characters including `/`, and `?` matches one character except `/`. Query matching is configured separately.
+`pattern` matches the absolute URL without query or hash.
+
+| Pattern | Matches |
+| --- | --- |
+| `*` | Zero or more characters, except `/` |
+| `**` | Zero or more characters, including `/` |
+| `?` | Exactly one character, except `/` |
+
+Use `query` for query parameters.
 
 ## Query matching
 
-`query` is an optional non-empty array of non-empty objects. Objects are OR alternatives; keys in an object are AND conditions. Each value is a string or non-empty string array (OR). Names and values are case-sensitive, extra request parameters are ignored, and a configured name must be present. Request values are decoded by `URLSearchParams`, including `+` as space; repeated values match existentially.
+`query` is an optional, non-empty array of non-empty objects.
+
+- Objects: any one may match (OR).
+- Keys within an object: all must match (AND).
+- Each value: a string, or a non-empty string array where any item may match (OR).
 
 ```json
 {
@@ -199,11 +310,31 @@ Patterns match the absolute URL without query or hash. `*` matches any character
 }
 ```
 
-Query values support glob-like patterns (unlike `rule.pattern` including `/` and line terminators): 
-- `*` is zero or more arbitrary characters;
-- `?` is zero or one arbitrary characters;
-- `+` is one or more. 
+For this example, either `status=active&page=1`, `status=draft&page=1`, or `preview` with zero or one character matches.
 
-To match these characters literally, write `"\\*"`, `"\\?"`, `"\\+"`, or `"\\\\"` in the JSON file. After JSON parsing, these become the logical patterns `\*`, `\?`, `\+`, and `\\`.
+Matching rules:
 
-No other backslash escapes are allowed. Empty strings match only empty values. Malformed escapes reject the complete sync.
+- Names and values are case-sensitive.
+- Configured parameters must be present; extra parameters are ignored.
+- Repeated parameters: at least one value must match.
+- Values are decoded with `URLSearchParams`; `+` becomes a space.
+- An empty pattern matches only an empty value.
+
+All query wildcards can match `/` and line breaks:
+
+| Pattern | Matches |
+| --- | --- |
+| `*` | Zero or more characters |
+| `?` | Zero or one character |
+| `+` | One or more characters |
+
+To match wildcard characters or backslashes literally:
+
+| Write in JSON | Matches |
+| --- | --- |
+| `"\\*"` | Literal `*` |
+| `"\\?"` | Literal `?` |
+| `"\\+"` | Literal `+` |
+| `"\\\\"` | Literal `\` |
+
+Other pattern backslash escapes are not allowed. Invalid escapes reject the entire sync.

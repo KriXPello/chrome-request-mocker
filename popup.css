@@ -140,6 +140,24 @@ summary input {
 .input-editor label { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(140px, 2fr) auto; align-items: center; gap: 8px; font-size: 13px; }
 .input-editor label input, .input-editor label select { min-width: 0; font: inherit; }
 .input-editor label button { justify-self: end; }
+.input-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 4px;
+    padding: 0;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    font-size: 10px;
+    line-height: 1;
+    vertical-align: middle;
+    opacity: 0.7;
+    cursor: help;
+}
 
 @media (prefers-color-scheme: dark) {
     .inputs-button.unsaved {
@@ -173,6 +191,7 @@ summary input {
 }
 
 .rule {
+    position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -181,9 +200,34 @@ summary input {
     margin: 6px 0;
 }
 
+.rule-methods {
+    position: absolute;
+    top: 0;
+    left: -16px;
+    display: flex;
+    flex-direction: column;
+    width: 12px;
+    height: 24px;
+    padding: 2px 4px;
+    box-sizing: border-box;
+    cursor: help;
+}
+
+.rule-method-segment {
+    flex: 1;
+    border-radius: 1px;
+    background: #89939e;
+}
+
+.rule-method-segment[data-method="GET"] { background: #2b9c5b; }
+.rule-method-segment[data-method="POST"] { background: #e57e25; }
+.rule-method-segment[data-method="PUT"] { background: #3b82f6; }
+.rule-method-segment[data-method="PATCH"] { background: #e9b949; }
+.rule-method-segment[data-method="DELETE"] { background: #e05252; }
+
 .rule-main {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 7px;
     min-width: 0;
     cursor: pointer;

@@ -104,8 +104,8 @@ function validateConfig(value, filename) {
       validateBodyTemplates(item.body, inputs, `${prefix}.response${Array.isArray(response) ? `s[${responseIndex}]` : ""}.body`);
       for (const [header, text] of Object.entries(item.headers)) validateTemplate(text, inputs, `${prefix}.headers.${header}`);
     }
-    const delay = "delay" in rule ? rule.delay : 0;
-    if (typeof delay !== "number" || !Number.isFinite(delay) || delay < 0) fail(prefix, "delay must be a finite number >= 0");
+    let delay = 0;
+    if ("delay" in rule) delay = normalizeDelay(rule.delay, `${prefix}.delay`);
     let methods;
     if ("methods" in rule) {
       if (!Array.isArray(rule.methods) || rule.methods.length === 0) fail(prefix, "methods must be a non-empty array");
@@ -137,7 +137,22 @@ function validateQueryTemplates(query, inputs, location) {
 
 function fail(filename, message) { throw new Error(`${filename}: ${message}`); }
 
+function normalizeDelay(value, prefix) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0) fail(prefix, "must be a finite number >= 0");
+    return value;
+  }
+  if (!isPlainObject(value)) fail(prefix, "must be a number or an object with min and max");
+  const { min, max } = value;
+  if (typeof min !== "number" || !Number.isFinite(min) || min < 0) fail(prefix, "min must be a finite number >= 0");
+  if (typeof max !== "number" || !Number.isFinite(max) || max < 0) fail(prefix, "max must be a finite number >= 0");
+  if (min > max) fail(prefix, "min must be <= max");
+  return { min, max };
+}
+
 function normalizeResponse(value, prefix, allowName = false, responseId = null) {
+  let delay;
+  if ("delay" in value) delay = normalizeDelay(value.delay, `${prefix}.response.delay`);
   const status = "status" in value ? value.status : 200;
   if (!Number.isInteger(status) || status < 200 || status > 599) fail(prefix, "response.status must be an integer from 200 through 599");
   const statusText = "statusText" in value ? value.statusText : "";
@@ -157,6 +172,7 @@ function normalizeResponse(value, prefix, allowName = false, responseId = null) 
     fail(prefix, "name must be a non-empty string");
   }
   return { ...(responseId ? { id: responseId } : {}), body: value.body, headers, status, statusText,
+    ...(delay !== undefined ? { delay } : {}),
     ...(allowName && typeof value.name === "string" ? { name: value.name } : {}) };
 }
 

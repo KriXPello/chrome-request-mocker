@@ -21,6 +21,18 @@
       <div>Last successful sync: <strong id="last-sync">Never</strong></div>
       <div id="counts">0 configs / 0 rules</div>
     </section>
+    <section>
+      <h2>Request logging</h2>
+      <div class="setting-row">
+        <label for="logging-mode">Mode</label>
+        <select id="logging-mode" disabled>
+          <option value="off">Off</option>
+          <option value="short" selected>Short</option>
+          <option value="detailed">Detailed</option>
+        </select>
+      </div>
+      <p class="setting-note">Saved automatically. Changes apply to open pages. Configuration diagnostics remain enabled.</p>
+    </section>
     <p id="status" role="status"></p>
   </main>
   <script type="module" src="settings.js"></script>

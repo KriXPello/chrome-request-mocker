@@ -248,6 +248,7 @@ function renderConfig(config, values = {}, draftValues = null) {
   for (const rule of config.rules) {
     const row = document.createElement("div");
     row.className = "rule";
+    row.append(renderMethodIndicator(rule.methods));
     const main = document.createElement("label");
     main.className = "rule-main";
     const input = document.createElement("input");
@@ -290,6 +291,27 @@ function renderConfig(config, values = {}, draftValues = null) {
   }
   wrapper.append(rules);
   return wrapper;
+}
+
+function renderMethodIndicator(methods) {
+  const indicator = document.createElement("span");
+  indicator.className = "rule-methods";
+  let indicatedMethods = [""];
+  let tooltip = "All methods";
+  if (methods) {
+    indicatedMethods = methods;
+    tooltip = `Methods: ${methods.join(", ")}`;
+  }
+  indicator.title = tooltip;
+  indicator.setAttribute("role", "img");
+  indicator.setAttribute("aria-label", tooltip);
+  for (const method of indicatedMethods) {
+    const segment = document.createElement("span");
+    segment.className = "rule-method-segment";
+    segment.dataset.method = method;
+    indicator.append(segment);
+  }
+  return indicator;
 }
 
 function renderConfigOrderRow(config, index, configCount) {
@@ -503,6 +525,15 @@ function createInputEditor(config, values, draftValues, onChange) {
     const label = document.createElement("label");
     const title = document.createElement("span");
     title.textContent = descriptor.name || id;
+    if (descriptor.description) {
+      const help = document.createElement("button");
+      help.type = "button";
+      help.className = "input-help";
+      help.textContent = "?";
+      help.title = descriptor.description;
+      help.setAttribute("aria-label", descriptor.description);
+      title.append(help);
+    }
     label.append(title);
     const hasDraft = draftValues !== null;
     const value = hasDraft ? draftValues[id] : values[id];

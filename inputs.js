@@ -18,12 +18,15 @@ export function normalizeInputs(value, prefix) {
       throw new Error(`${prefix}: inputs.${id} must be an object`);
     }
     for (const key of Object.keys(descriptor)) {
-      if (!["name", "type", "masked"].includes(key)) {
+      if (!["name", "description", "type", "masked"].includes(key)) {
         throw new Error(`${prefix}: unknown field inputs.${id}.${key}`);
       }
     }
     if ("name" in descriptor && (typeof descriptor.name !== "string" || !descriptor.name.trim())) {
       throw new Error(`${prefix}: inputs.${id}.name must be non-empty`);
+    }
+    if ("description" in descriptor && typeof descriptor.description !== "string") {
+      throw new Error(`${prefix}: inputs.${id}.description must be a string`);
     }
     const type = descriptor.type ?? "string";
     if (!INPUT_TYPES.has(type)) {
@@ -34,6 +37,7 @@ export function normalizeInputs(value, prefix) {
       throw new Error(`${prefix}: masked is only valid for string inputs`);
     }
     result[id] = { name: descriptor.name ?? id, type, masked };
+    if ("description" in descriptor) result[id].description = descriptor.description;
   }
   return result;
 }

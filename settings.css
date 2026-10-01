@@ -38,9 +38,22 @@ section {
   margin-top: 14px;
 }
 
-button {
+button,
+select {
   font: inherit;
   padding: 7px 12px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setting-note {
+  font-size: 13px;
+  opacity: 0.8;
+  margin-bottom: 0;
 }
 
 #status {

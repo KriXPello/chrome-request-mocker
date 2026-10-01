@@ -81,8 +81,9 @@
   }
 
   function prepareConfig(config) {
+    const loggingMode = config?.loggingMode ?? "short";
     if (!config || !Array.isArray(config.rules)) {
-      return { rules: [] };
+      return { rules: [], loggingMode };
     }
 
     const rules = [];
@@ -97,7 +98,7 @@
       }
     }
 
-    return { rules };
+    return { rules, loggingMode };
   }
 
   function globToRegExp(glob) {
@@ -158,10 +159,12 @@
         && queryMatches(rule.query, requestUrl)) {
         const response = routedResponse(rule, requestUrl);
         if (response) {
-          if (Array.isArray(rule.responses)) {
-            return { ...rule, response };
+          const configuredDelay = response.delay ?? rule.delay;
+          let delay = configuredDelay;
+          if (typeof delay === "object") {
+            delay = delay.min + Math.random() * (delay.max - delay.min);
           }
-          return rule;
+          return { ...rule, response, delay, configuredDelay };
         }
       }
     }
@@ -257,6 +260,54 @@
     };
   }
 
+  function logMockRequest(transport, method, url, rule, outcome) {
+    const loggingMode = preparedConfig.loggingMode;
+    if (loggingMode === "off") return;
+    let path = url;
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(url);
+      path = parsedUrl.pathname;
+    } catch {
+      // Keep the original URL if it cannot be parsed.
+    }
+    const response = rule.response;
+    const responseName = response.name ?? response.id;
+    let result = outcome;
+    if (outcome === "response") {
+      result = `[${response.status}]`;
+    }
+    if (responseName) result += `: ${JSON.stringify(responseName)}`;
+    const delayMs = Math.round(rule.delay);
+    const summary = `[Mock] ${transport} ${method} ${path} → ${result} · delay ${delayMs} ms`;
+    if (loggingMode === "short") {
+      console.debug(summary);
+      return;
+    }
+    let query = {};
+    if (parsedUrl) {
+      query = Object.fromEntries([...new Set(parsedUrl.searchParams.keys())].map((key) => {
+        const values = parsedUrl.searchParams.getAll(key);
+        if (values.length === 1) return [key, values[0]];
+        return [key, values];
+      }));
+    }
+    let min = rule.configuredDelay;
+    let max = min;
+    if (typeof rule.configuredDelay === "object") {
+      min = rule.configuredDelay.min;
+      max = rule.configuredDelay.max;
+    }
+    console.debug(summary, {
+      transport,
+      request: { method, url, query },
+      configId: rule.configId ?? null,
+      ruleId: rule.ruleId ?? rule.id ?? null,
+      responseId: response.id ?? null,
+      delay: { resolved: delayMs, min, max }
+    });
+  }
+
   patchFetch();
   patchXmlHttpRequest();
 
@@ -274,7 +325,12 @@
       }
 
       const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
-      await sleep(rule.delay, signal);
+      try {
+        await sleep(rule.delay, signal);
+      } catch (error) {
+        if (error.name === "AbortError") logMockRequest("fetch", method, url, rule, "abort");
+        throw error;
+      }
 
       const responseConfig = responseForRule(rule);
       const body = method === "HEAD" || [204, 205, 304].includes(responseConfig.status)
@@ -295,7 +351,7 @@
         // Non-essential; a constructed Response normally has an empty URL.
       }
 
-      console.debug(`[Chrome Request Mocker] fetch ${method} ${url} -> ${rule.configId ?? "?"}/${rule.ruleId ?? rule.pattern} (${rule.delay} ms)`);
+      logMockRequest("fetch", method, url, rule, "response");
       return response;
     };
   }
@@ -350,7 +406,9 @@
         mocked: false,
         timer: null,
         timeoutTimer: null,
-        state: null
+        state: null,
+        rule: null,
+        outcome: null
       });
 
       return result;
@@ -379,6 +437,7 @@
         }
 
         meta.mocked = true;
+        meta.rule = rule;
         const end = performance.now() + rule.delay;
         while (performance.now() < end) {
           // Synchronous XHR blocks the main thread too; preserve that behavior for configured delay.
@@ -419,6 +478,7 @@
       clearTimeout(meta.timeoutTimer);
 
       if (meta.mocked) {
+        logMockXhr(meta, "abort");
         if (meta.state) {
           meta.state.readyState = 0;
           meta.state.status = 0;
@@ -433,6 +493,7 @@
 
     function beginMockXhr(xhr, meta, rule) {
       meta.mocked = true;
+      meta.rule = rule;
       meta.state = makeMockState(xhr, meta.url, responseForRule(rule), meta.method);
       installMockProperties(xhr, meta.state);
 
@@ -448,6 +509,7 @@
           meta.state.readyState = 4;
           meta.state.status = 0;
           meta.state.statusText = "";
+          logMockXhr(meta, "timeout");
           xhr.dispatchEvent(new Event("readystatechange"));
           xhr.dispatchEvent(new Event("timeout"));
           xhr.dispatchEvent(new Event("loadend"));
@@ -480,6 +542,7 @@
       xhr.dispatchEvent(new Event("readystatechange"));
 
       meta.state.readyState = 4;
+      logMockXhr(meta, "response");
       xhr.dispatchEvent(new Event("readystatechange"));
 
       const byteLength = new TextEncoder().encode(meta.state.text).byteLength;
@@ -492,8 +555,12 @@
       );
       xhr.dispatchEvent(new Event("load"));
       xhr.dispatchEvent(new Event("loadend"));
+    }
 
-      console.debug(`[Chrome Request Mocker] XHR ${meta.method} ${meta.url} -> ${rule.configId ?? "?"}/${rule.ruleId ?? rule.pattern} (${rule.delay} ms)`);
+    function logMockXhr(meta, outcome) {
+      if (meta.outcome) return;
+      meta.outcome = outcome;
+      logMockRequest("XHR", meta.method, meta.url, meta.rule, outcome);
     }
 
     function makeMockState(xhr, url, responseConfig, method) {

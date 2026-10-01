@@ -1,6 +1,7 @@
 const DB_NAME = "local-mock";
 const DB_VERSION = 3;
 const DIRECTORY_KEY = "config-directory";
+const LOGGING_MODES = ["off", "short", "detailed"];
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -69,6 +70,27 @@ export function getDirectoryHandle() {
 export function clearDirectoryHandle() {
   return withDb((db) => transaction(db, ["handles"], "readwrite", (tx) =>
     tx.objectStore("handles").delete(DIRECTORY_KEY)));
+}
+
+export function getLoggingMode() {
+  return withDb((db) => new Promise((resolve, reject) => {
+    const request = db.transaction("meta", "readonly").objectStore("meta").get("logging");
+    request.onsuccess = () => {
+      const mode = request.result?.mode;
+      if (LOGGING_MODES.includes(mode)) {
+        resolve(mode);
+        return;
+      }
+      resolve("short");
+    };
+    request.onerror = () => reject(request.error);
+  }));
+}
+
+export function setLoggingMode(mode) {
+  if (!LOGGING_MODES.includes(mode)) throw new Error("Invalid request logging mode.");
+  return withDb((db) => transaction(db, ["meta"], "readwrite", (tx) =>
+    tx.objectStore("meta").put({ key: "logging", mode })));
 }
 
 export function getAllConfigs() {

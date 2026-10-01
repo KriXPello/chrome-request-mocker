@@ -2,7 +2,10 @@
 
 ## When changes take effect
 
-Changes to enabled configs, rules, selected responses, input values, and synchronized files are sent to open pages immediately. They affect subsequent requests; requests already in progress keep the configuration with which they started.
+Changes are sent to open pages immediately:
+
+- Config, rule, selected response, input, and synced-file changes affect subsequent requests. Requests in progress keep their original configuration.
+- Logging mode changes also apply to requests in progress.
 
 The badge on the extension icon shows the number of enabled configs whose required inputs are complete. It counts configs rather than individual rules; an enabled config is counted even when all of its rules are disabled.
 
@@ -50,7 +53,13 @@ Check that:
 - `*` is used for one path segment and `**` when the match needs to cross `/`;
 - the pattern does not depend on query parameters.
 
-You can also check the application DevTools console for `[Chrome Request Mocker]` messages.
+Check the application's DevTools console:
+
+- `[Mock]` — request results and response names. Enable the **Verbose** level to see these debug logs.
+- Choose **Request logging** in Settings: **Off**, **Short** (summary only; default), or **Detailed** (summary and object).
+- Detailed logs include transport, method, URL, decoded query parameters, config/rule/response IDs, and `delay: { resolved, min, max }`. Fixed delays use `min = max`; repeated query parameters become arrays.
+- The mode is saved locally. Response bodies and headers are never logged.
+- `[Chrome Request Mocker]` — configuration diagnostics.
 
 ## Folder access was lost
 

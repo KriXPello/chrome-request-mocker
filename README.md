@@ -25,6 +25,8 @@ Configs stay on your device, so you can edit them in your IDE, keep them in Git,
 
 Configs can declare required inputs, reference them as `${inputId}`, and keep their values locally in the popup instead of in JSON files. Unsaved edits are restored if the popup closes. See [input templates](docs/configuration.md#inputs-and-templates).
 
+Rules and individual responses can set a fixed `delay` in milliseconds or a random range such as `{ "min": 200, "max": 800 }`. A response's delay overrides the rule's delay. See [response delay](docs/configuration.md#response-delay).
+
 ### Combining `*` and `**` in URL patterns
 
 `*` matches characters inside one path segment, while `**` can cross `/`. They can be used together:
