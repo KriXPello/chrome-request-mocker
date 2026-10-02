@@ -1,5 +1,5 @@
 import { replaceConfigsAfterSync } from "./db.js";
-import { normalizeInputs, validateTemplate } from "./inputs.js";
+import { getPatternParams, normalizeInputs, normalizeQueryMap, validateTemplate } from "./inputs.js";
 
 export async function syncConfigsFromDirectory(directoryHandle) {
   const permission = await directoryHandle.queryPermission({ mode: "read" });
@@ -76,7 +76,12 @@ function validateConfig(value, filename) {
     ids.add(rule.id);
     if ("name" in rule && typeof rule.name !== "string") fail(prefix, "name must be a string");
     if (typeof rule.pattern !== "string" || !rule.pattern) fail(prefix, "pattern must be a non-empty string");
-    validateTemplate(rule.pattern, inputs, `${prefix}.pattern`);
+    const captures = getPatternParams(rule.pattern, inputs, `${prefix}.pattern`);
+    const templateInputs = { ...(inputs || {}), ...Object.fromEntries(captures.map((id) => [id, true])) };
+    const queryMap = normalizeQueryMap(rule.queryMap, templateInputs, prefix);
+    for (const id of Object.values(queryMap || {})) {
+      Object.defineProperty(templateInputs, id, { value: true, enumerable: true });
+    }
     if (("response" in rule) === ("responses" in rule)) fail(prefix, "exactly one of response or responses is required");
     let response;
     if ("responses" in rule) {
@@ -96,13 +101,16 @@ function validateConfig(value, filename) {
       if (!("body" in rule.response)) fail(prefix, "response.body is required");
       response = normalizeResponse(rule.response, prefix);
     }
-    const query = normalizeQuery(rule.query, prefix);
-    validateQueryTemplates(query, inputs, `${prefix}.query`);
-    const routes = normalizeRoutes(rule.routes, response, query, prefix);
-    routes?.forEach((route, index) => validateQueryTemplates(route.query, inputs, `${prefix}.routes[${index}].query`));
+    const query = normalizeConditions(rule.query, prefix);
+    validateQueryTemplates(query, templateInputs, `${prefix}.query`);
+    const routes = normalizeRoutes(rule.routes, response, query, prefix, captures);
+    routes?.forEach((route, index) => {
+      validateQueryTemplates(route.query, templateInputs, `${prefix}.routes[${index}].query`);
+      validateQueryTemplates(route.params, templateInputs, `${prefix}.routes[${index}].params`);
+    });
     for (const [responseIndex, item] of (Array.isArray(response) ? response : [response]).entries()) {
-      validateBodyTemplates(item.body, inputs, `${prefix}.response${Array.isArray(response) ? `s[${responseIndex}]` : ""}.body`);
-      for (const [header, text] of Object.entries(item.headers)) validateTemplate(text, inputs, `${prefix}.headers.${header}`);
+      validateBodyTemplates(item.body, templateInputs, `${prefix}.response${Array.isArray(response) ? `s[${responseIndex}]` : ""}.body`);
+      for (const [header, text] of Object.entries(item.headers)) validateTemplate(text, templateInputs, `${prefix}.headers.${header}`);
     }
     let delay = 0;
     if ("delay" in rule) delay = normalizeDelay(rule.delay, `${prefix}.delay`);
@@ -117,7 +125,7 @@ function validateConfig(value, filename) {
       }
     }
     return { id: rule.id, ...(typeof rule.name === "string" ? { name: rule.name } : {}), pattern: rule.pattern,
-      ...(methods ? { methods } : {}), delay, ...(query ? { query } : {}),
+      ...(methods ? { methods } : {}), delay, ...(query ? { query } : {}), ...(queryMap ? { queryMap } : {}),
       ...(routes ? { routes } : {}), ...(Array.isArray(response) ? { responses: response } : { response }) };
   });
   return { id: value.id, ...(typeof value.name === "string" ? { name: value.name } : {}), ...(inputs ? { inputs } : {}), rules };
@@ -176,17 +184,17 @@ function normalizeResponse(value, prefix, allowName = false, responseId = null) 
     ...(allowName && typeof value.name === "string" ? { name: value.name } : {}) };
 }
 
-function normalizeQuery(value, prefix) {
+function normalizeConditions(value, prefix, field = "query") {
   if (value === undefined) return null;
-  if (!Array.isArray(value) || value.length === 0) fail(prefix, "query must be a non-empty array");
+  if (!Array.isArray(value) || value.length === 0) fail(prefix, `${field} must be a non-empty array`);
   return value.map((alternative, index) => {
-    const queryPrefix = `${prefix}: query[${index}]`;
+    const queryPrefix = `${prefix}: ${field}[${index}]`;
     if (!isPlainObject(alternative) || Object.keys(alternative).length === 0) fail(queryPrefix, "must be a non-empty object");
     const result = {};
     for (const [name, configured] of Object.entries(alternative)) {
       if (!name.trim()) fail(queryPrefix, "parameter names must be non-empty strings");
       const values = Array.isArray(configured) ? configured : [configured];
-      if (values.length === 0 || values.some((item) => typeof item !== "string")) fail(queryPrefix, `query parameter "${name}" must be a string or non-empty string array`);
+      if (values.length === 0 || values.some((item) => typeof item !== "string")) fail(queryPrefix, `${field} parameter "${name}" must be a string or non-empty string array`);
       for (const item of values) validateGlob(item, queryPrefix);
       Object.defineProperty(result, name, {
         value: values,
@@ -209,8 +217,9 @@ function validateGlob(value, prefix) {
   }
 }
 
-function normalizeRoutes(value, responses, query, prefix) {
+function normalizeRoutes(value, responses, query, prefix, captures) {
   if (value === undefined) return null;
+  if (!Array.isArray(value)) fail(prefix, "routes must be a non-empty array");
   if (!Array.isArray(responses)) fail(prefix, "routes requires responses");
   if (query) fail(prefix, "query and routes cannot be used together");
   if (value.length === 0) fail(prefix, "routes must be a non-empty array");
@@ -219,12 +228,16 @@ function normalizeRoutes(value, responses, query, prefix) {
   return value.map((route, index) => {
     const routePrefix = `${prefix}: routes[${index}]`;
     if (!isPlainObject(route) || typeof route.responseId !== "string" || !ids.has(route.responseId)) fail(routePrefix, "responseId must reference a response");
-    const routeQuery = normalizeQuery(route.query, routePrefix);
-    if (!routeQuery) {
-      if (fallback || index !== value.length - 1) fail(routePrefix, "only one query-less fallback is allowed and it must be last");
+    const routeQuery = normalizeConditions(route.query, routePrefix);
+    const routeParams = normalizeConditions(route.params, routePrefix, "params");
+    for (const alternative of routeParams || []) for (const name of Object.keys(alternative)) {
+      if (!captures.includes(name)) fail(routePrefix, `params key "${name}" must name a pattern capture`);
+    }
+    if (!routeQuery && !routeParams) {
+      if (fallback || index !== value.length - 1) fail(routePrefix, "only one fallback without query or params is allowed and it must be last");
       fallback = true;
     }
-    return { ...(routeQuery ? { query: routeQuery } : {}), responseId: route.responseId };
+    return { ...(routeQuery ? { query: routeQuery } : {}), ...(routeParams ? { params: routeParams } : {}), responseId: route.responseId };
   });
 }
 

@@ -155,16 +155,53 @@
     }
 
     for (const rule of config.rules) {
-      if (rule.matcher.test(matchingUrl) && (!rule.methods || rule.methods.includes(method))
-        && queryMatches(rule.query, requestUrl)) {
-        const response = routedResponse(rule, requestUrl);
+      if (rule.methods && !rule.methods.includes(method)) continue;
+      const match = rule.matcher.exec(matchingUrl);
+      if (!match) continue;
+      const params = Object.create(null);
+      for (const [index, name] of (rule.patternParams || []).entries()) {
+        const value = match[index + 1];
+        try {
+          params[name] = decodeURIComponent(value);
+        } catch {
+          params[name] = value;
+        }
+      }
+      let resolvedRule;
+      try {
+        const values = { ...params };
+        if (rule.queryMap) {
+          const query = new URL(requestUrl).searchParams;
+          for (const [parameter, name] of Object.entries(rule.queryMap)) {
+            const captured = query.getAll(parameter);
+            Object.defineProperty(values, name, {
+              value: captured.length > 1 ? captured : (captured[0] ?? ""),
+              enumerable: true
+            });
+          }
+        }
+        resolvedRule = resolveCapturedValues(rule, values);
+      } catch (error) {
+        console.warn(`[Chrome Request Mocker] Skipping ${rule.configId}/${rule.id}:`, error);
+        continue;
+      }
+      if (queryMatches(resolvedRule.query, requestUrl)) {
+        const response = routedResponse(resolvedRule, requestUrl, params);
         if (response) {
-          const configuredDelay = response.delay ?? rule.delay;
+          const headersValid = Object.values(response.headers).every((value) => [...value].every((char) => {
+            const code = char.charCodeAt(0);
+            return code === 9 || (code >= 32 && code <= 126) || (code >= 128 && code <= 255);
+          }));
+          if (!headersValid) {
+            console.warn(`[Chrome Request Mocker] Skipping ${rule.configId}/${rule.id}: invalid resolved HTTP header value.`);
+            continue;
+          }
+          const configuredDelay = response.delay ?? resolvedRule.delay;
           let delay = configuredDelay;
           if (typeof delay === "object") {
             delay = delay.min + Math.random() * (delay.max - delay.min);
           }
-          return { ...rule, response, delay, configuredDelay };
+          return { ...resolvedRule, response, delay, configuredDelay };
         }
       }
     }
@@ -172,21 +209,57 @@
     return null;
   }
 
+  function resolveCapturedValues(rule, values) {
+    if (!rule.valueTemplates) return rule;
+    const resolved = structuredClone(rule);
+    for (const template of rule.valueTemplates) {
+      let value = "";
+      for (const part of template.parts) {
+        if ("id" in part) {
+          let captured = String(values[part.id]);
+          if (template.query) captured = captured.replace(/[\\*?+]/g, "\\$&");
+          value += captured;
+        } else {
+          value += part.literal;
+        }
+      }
+      if (template.exactTyped && template.parts.length === 1 && "id" in template.parts[0]) {
+        value = values[template.parts[0].id];
+      }
+      let target = resolved;
+      for (const key of template.path.slice(0, -1)) target = target[key];
+      Object.defineProperty(target, template.path[template.path.length - 1], {
+        value,
+        enumerable: true,
+        configurable: true,
+        writable: true
+      });
+    }
+    return resolved;
+  }
+
   function queryMatches(query, requestUrl) {
     if (!query) return true;
     let parsed;
     try { parsed = new URL(requestUrl); } catch { return false; }
-    const params = parsed.searchParams;
-    return query.some((alternative) => Object.entries(alternative).every(([name, patterns]) => {
-      const values = params.getAll(name);
+    return conditionsMatch(query, (name) => parsed.searchParams.getAll(name));
+  }
+
+  function conditionsMatch(conditions, valuesForName) {
+    if (!conditions) return true;
+    return conditions.some((alternative) => Object.entries(alternative).every(([name, patterns]) => {
+      const values = valuesForName(name);
       return values.length > 0 && values.some((value) => patterns.some((pattern) => queryGlobMatches(pattern, value)));
     }));
   }
 
-  function routedResponse(rule, requestUrl) {
+  function routedResponse(rule, requestUrl, params) {
     if (!Array.isArray(rule.routes)) return rule.response;
     for (const route of rule.routes) {
-      if (!route.query || queryMatches(route.query, requestUrl)) {
+      if (queryMatches(route.query, requestUrl) && conditionsMatch(route.params, (name) => {
+        if (Object.hasOwn(params, name)) return [params[name]];
+        return [];
+      })) {
         return rule.responses.find((response) => response.id === route.responseId) || null;
       }
     }

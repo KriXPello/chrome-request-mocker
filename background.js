@@ -88,14 +88,15 @@ async function loadRuntimeConfig() {
       for (const rule of config.rules) {
         if (rule.enabled) {
           try {
-            const runtimeRule = resolveRuntimeRule(rule, config.inputs || {}, values);
+            let runtimeSource = rule;
             if (Array.isArray(rule.responses) && !rule.routes) {
-              const selected = runtimeRule.responses.find((response) => response.id === rule.selectedResponseId)
-                || runtimeRule.responses[0];
-              runtimeRule.response = { ...selected };
-              delete runtimeRule.responses;
-              delete runtimeRule.selectedResponseId;
+              const selected = rule.responses.find((response) => response.id === rule.selectedResponseId)
+                || rule.responses[0];
+              runtimeSource = { ...rule, response: selected };
+              delete runtimeSource.responses;
+              delete runtimeSource.selectedResponseId;
             }
+            const runtimeRule = resolveRuntimeRule(runtimeSource, config.inputs || {}, values);
             rules.push({ ...runtimeRule, responseFormatVersion: 3, configId: config.id, ruleId: rule.id });
           } catch (error) {
             console.warn(`[Chrome Request Mocker] Skipping ${config.id}/${rule.id}:`, error);

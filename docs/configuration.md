@@ -1,78 +1,61 @@
 # Configuration
 
-Chrome Request Mocker reads JSON configs from the selected folder.
+Chrome Request Mocker reads JSON files from the selected folder; subfolders are ignored. Sync applies changes only if every file is valid. Otherwise, the previous configuration remains unchanged.
 
-- Subfolders are ignored.
-- The first enabled matching rule wins.
-- Sync applies changes only if every file is valid.
+## Config
 
-## Config and rule
-
-A config file is an object containing an array of rules:
+A config contains an array of rules. This complete example returns an empty project list:
 
 ```json
 {
   "id": "projects",
   "name": "Projects",
-  "rules": []
+  "rules": [
+    {
+      "id": "list",
+      "pattern": "**/api/projects",
+      "methods": ["GET"],
+      "response": { "body": { "items": [] } }
+    }
+  ]
 }
 ```
 
-Config fields:
+| Field | Meaning |
+| --- | --- |
+| `id` | Required, non-empty identifier unique across config files |
+| `name` | Optional label; defaults to `id` |
+| `inputs` | Optional input declarations; see [Inputs and templates](#inputs-and-templates) |
+| `rules` | Required array of rules |
 
-- `id` - required, config identifier unique across all config files
-- `name` - optional, config name shown in the popup; `id` is used when omitted
-- `inputs` - optional, object of required local input descriptors used by templates; see [Inputs and templates](#inputs-and-templates)
-- `rules` - required, array of rules
+## Rules
 
-Each rule uses one of three forms.
+The first enabled rule whose URL, method, and conditions match returns a mock response without contacting the server. Requests without a matching rule pass through normally.
 
-### Fields common to all three rule forms
+Common rule fields:
 
-- `rules[].id` - required, rule identifier unique within the config
-- `rules[].name` - optional, rule name shown in the popup; `rules[].id` is used when omitted
-- `rules[].pattern` - required, URL glob matched against the absolute URL without query or hash
-- `rules[].methods` - optional, non-empty array of HTTP methods; all methods are matched when omitted
-- `rules[].delay` - optional, response delay in milliseconds: a number or `{ "min": number, "max": number }`; defaults to `0`. See [Response delay](#response-delay).
+| Field | Meaning |
+| --- | --- |
+| `id` | Required, non-empty identifier unique within the config |
+| `name` | Optional label; defaults to `id` |
+| `pattern` | Required URL pattern; see [URL patterns](#url-patterns) |
+| `methods` | Optional, non-empty array of HTTP methods; omitted means all methods |
+| `queryMap` | Optional mapping of query parameter names to template variable names; see [Query variables](#query-variables) |
+| `delay` | Optional response delay; see [Response delay](#response-delay) |
 
-In the popup, a colored strip beside each rule shows its methods. Hover for the list; omitted `methods` shows “All methods”.
+Each rule uses one of the following three forms. `response` and `responses` cannot be combined.
 
-### Rule Form 1 - one response
+### One response
 
-Returns one fixed response. Add `query` to limit which requests match.
+Use `response` to return a single [response object](#response), as in the config above. Optional rule-level `query` conditions limit which requests match.
 
-```json
-{
-  "id": "project-details",
-  "name": "Project details",
-  "pattern": "**/api/projects/*",
-  "methods": ["GET"],
-  "delay": 500,
-  "query": [{ "view": "full" }],
-  "response": {
-    "status": 200,
-    "body": { "id": 1 }
-  }
-}
-```
+### Manually selected responses
 
-- `response` - required, the response returned by the rule
-- `response.body` - required, any JSON value
-- `response.status` - optional, HTTP status code; defaults to `200`
-- `response.statusText` - optional, HTTP status text; defaults to an empty string
-- `response.headers` - optional, HTTP headers; defaults to `Content-Type: application/json`
-- `response.delay` - optional, overrides the rule's delay; uses the same number or range format
-- `query` - optional, query conditions that determine whether the rule matches
-
-Statuses `204`, `205`, and `304` require `body: null`.
-
-### Rule Form 2 - manually selected responses
-
-Choose a response variant in the popup.
+Use a non-empty `responses` array to define variants:
 
 ```json
 {
-  "id": "projects-list",
+  "id": "list",
   "pattern": "**/api/projects",
   "responses": [
     { "id": "empty", "name": "Empty", "body": { "items": [] } },
@@ -81,225 +64,125 @@ Choose a response variant in the popup.
 }
 ```
 
-- `responses` - required, non-empty array of response objects
-- `responses[].id` - required, response identifier unique within the rule
-- `responses[].name` - optional, response name shown in the popup; `id` is used when omitted
-- `query` - optional, limits requests for the whole rule; does not select a response
+Each item is a [response object](#response) with a required, non-empty `id` unique within the rule and an optional `name` defaulting to `id`.
 
-Response fields are the same as for a single `response`: `body`, `status`, `statusText`, `headers`, and `delay`. Fields `id`, `name`, and `delay` are metadata, not HTTP response content.
+The selected variant is used for every matching request. Initially, the first response is selected. Sync preserves the selection by ID, regardless of ordering; if that ID is removed, the first response is selected instead.
 
-Selection:
+Optional rule-level `query` conditions limit matching requests; they do not select a variant.
 
-- New rules select the first response.
-- Selection is stored by `id`; reordering changes nothing.
-- Sync keeps the selected ID, or selects the first response if that ID was removed.
+### Automatically routed responses
 
-### Rule Form 3 - automatically routed responses
-
-Select a response by request query parameters. The first matching route wins.
+Add `routes` to a rule with `responses` to select a variant by request conditions:
 
 ```json
 {
-  "id": "projects-list",
+  "id": "list",
   "pattern": "**/api/projects",
   "responses": [
     { "id": "active", "body": { "items": [1] } },
-    { "id": "fallback", "body": { "items": [] } }
+    { "id": "empty", "body": { "items": [] } }
   ],
   "routes": [
     { "query": [{ "status": "active" }], "responseId": "active" },
-    { "responseId": "fallback" }
+    { "responseId": "empty" }
   ]
 }
 ```
 
-- `responses` - required, non-empty array of response objects with unique IDs
-- `routes` - required, non-empty ordered array of routes
-- `routes[].query` - optional, query conditions for the route; omitting it creates a fallback route
-- `routes[].responseId` - required, ID of a response from the rule's `responses` array
+`routes` is a non-empty array, checked in order. The first matching route wins.
 
-Constraints:
+| Route field | Meaning |
+| --- | --- |
+| `query` | Optional conditions on query parameters after `?` |
+| `params` | Optional conditions on values captured by the URL pattern |
+| `responseId` | Required ID of a response in this rule's `responses` array |
 
+- `query` and `params` use the same [condition format](#conditions-query-and-params). When both are present, both must match.
 - Put `query` on routes, not on the rule.
-- At most one fallback route is allowed; it must be last.
-- No matching route and no fallback: continue to the next rule.
+- A route without either condition is a fallback. At most one is allowed, and it must be last.
+- If no route matches and there is no fallback, matching continues with the next rule.
 
-The popup displays `Automatic · N routes` instead of a response selector.
+## URL patterns
 
-## Response delay
+`pattern` matches the absolute URL without query parameters or hash.
 
-Set `delay` on a rule, its single `response`, or any item in `responses`. Both formats use milliseconds:
+| Syntax | Matches |
+| --- | --- |
+| `*` | Zero or more characters, except `/` |
+| `**` | Zero or more characters, including `/` |
+| `?` | Exactly one character, except `/` |
+| `{id}` | One non-empty segment without `/`, captured as `id` |
+| `{path:**}` | Zero or more characters, including `/`, captured as `path` |
 
-- `500` — fixed delay.
-- `{ "min": 200, "max": 800 }` — uniformly random delay, picked anew for each request after selecting its response.
+Captures use the shared [variable naming rules](#template-syntax). Names must be unique within the pattern and must not conflict with inputs or `queryMap` variables.
 
-Constraints:
+Captured values are strings. Percent-encoded characters are decoded once; `+` stays `+`. If a value contains invalid percent encoding, it is left unchanged.
 
-- Fixed delays and range boundaries must be finite, non-negative numbers.
-- Ranges require both `min` and `max`, with `min <= max`.
-
-Priority:
-
-1. Response `delay`, if set — even `0`.
-2. Otherwise, rule `delay`.
-3. Otherwise, `0`.
-
-Delays are not added together.
+Use captures in route `params` conditions or insert them with `$[[name]]`:
 
 ```json
 {
-  "id": "projects",
-  "pattern": "**/api/projects",
-  "delay": { "min": 200, "max": 800 },
+  "id": "project-file",
+  "pattern": "**/projects/{id}/files/{path:**}",
   "responses": [
-    { "id": "success", "body": { "items": [] } },
-    { "id": "slow", "delay": 3000, "body": { "items": [] } },
-    { "id": "instant", "delay": 0, "body": { "items": [] } }
-  ]
-}
-```
-
-## Rules toggle
-
-- Configs are disabled by default; new rules are enabled.
-- Toggle state is stored locally and survives sync while config and rule IDs stay the same.
-
-## Inputs and templates
-
-Declare inputs in the optional top-level `inputs` object; enter their values in the popup, not the JSON file.
-
-- Every declared input is required.
-- Values are local to your browser profile.
-- Input IDs must match `[A-Za-z_][A-Za-z0-9_]*`.
-
-Each descriptor accepts only these fields:
-
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `name` | input ID | Non-empty label shown in the popup |
-| `description` | omitted | Tooltip on the `?` icon after the input label in the popup |
-| `type` | `"string"` | One of `"string"`, `"number"`, or `"boolean"` |
-| `masked` | `false` | Uses a password control in the popup; may be specified only for string inputs |
-
-```json
-{
-  "id": "tenant-api",
-  "inputs": {
-    "tenant": { "name": "Tenant ID", "description": "Tenant whose API responses should be mocked" },
-    "token": { "name": "Access token", "masked": true },
-    "limit": { "type": "number" },
-    "preview": { "type": "boolean" }
-  },
-  "rules": [
+    { "id": "file", "body": { "projectId": "$[[id]]", "file": "$[[path]]" } }
+  ],
+  "routes": [
     {
-      "id": "list",
-      "pattern": "**/tenants/${tenant}/items",
-      "query": [{ "token": "${token}" }],
-      "response": {
-        "headers": { "X-Tenant": "tenant-${tenant}" },
-        "body": {
-          "limit": "${limit}",
-          "preview": "${preview}",
-          "message": "Tenant ${tenant}",
-          "placeholderExample": "$${tenant}"
-        }
-      }
+      "params": [{ "id": ["42", "43"], "path": "*.json" }],
+      "query": [{ "owner": "$[[id]]" }],
+      "responseId": "file"
     }
   ]
 }
 ```
 
-| Syntax | Result |
-| --- | --- |
-| `${id}` | Value of the declared input |
-| `$${id}` | Literal text `${id}` |
+For a URL ending in `/projects/42/files/reports/daily.json?owner=42`, this returns `{"projectId":"42","file":"reports/daily.json"}`. Both the captured-value conditions and the query condition must match.
 
-Unknown inputs or malformed placeholders reject the entire sync.
+Capture syntax applies only to `pattern`; `{id}` in a response body is ordinary text.
 
-Substitution is performed only in:
+## Query variables
 
-- rule `pattern`;
-- rule and route `query` values;
-- string values anywhere inside a response `body`;
-- response header values.
+Use rule-level `queryMap` to make query values available through `$[[name]]`. Each key is a query parameter name; its value is a template variable name:
 
-Object keys and structural fields (`id`, `name`, `methods`, `status`, `statusText`, etc.) are not templates.
+```json
+{
+  "id": "search",
+  "pattern": "**/api/search",
+  "queryMap": { "q": "query.search", "tag": "query.tags" },
+  "responses": [
+    {
+      "id": "results",
+      "body": { "search": "$[[query.search]]", "tags": "$[[query.tags]]" }
+    },
+    { "id": "empty", "body": { "items": [] } }
+  ],
+  "routes": [
+    { "query": [{ "q": "+" }], "responseId": "results" },
+    { "responseId": "empty" }
+  ]
+}
+```
 
-Body value types:
+For `/api/search?q=hello&tag=red&tag=blue`, this returns `{"search":"hello","tags":["red","blue"]}`.
 
-| Example | Result type |
-| --- | --- |
-| `"${limit}"` | Number, matching the input type |
-| `"${preview}"` | Boolean, matching the input type |
-| `"Tenant ${tenant}"` | String |
+- An absent parameter produces `""`; one occurrence produces a string; multiple occurrences produce an array of strings in URL order, including empty or duplicate values.
+- Values are decoded, with `+` treated as a space, just like query conditions.
+- `queryMap` does not filter requests. Use `query` conditions to require a parameter; a request without `q` in the example still reaches the fallback.
+- Query variables are available in conditions and responses in all three rule forms. Route `params` keys still refer only to pattern captures.
+- Parameter names must be non-empty. Variable names follow the shared [naming rules](#template-syntax); duplicates and conflicts reject sync.
 
-Header values always produce strings.
+<a id="query-matching"></a>
 
-Inserted values are literal:
+## Conditions: query and params
 
-- They are never parsed again as templates.
-- In `pattern` and `query`, input wildcards stay literal: `team-*` matches the text `team-*`.
+`query` checks query parameters after `?`. Route `params` checks URL captures; every key must name a capture in the rule's pattern.
 
-### Editing and persistence
+Both use a non-empty array of non-empty objects:
 
-1. Open **Inputs** in the config header.
-2. Edit the values.
-3. Click **Save** or **Cancel** in the same header.
-
-| Action | Effect |
-| --- | --- |
-| **Save** | Validates and replaces the config's entire local input set at once |
-| **Cancel** | Discards the draft and restores saved values |
-
-**Incomplete inputs**
-
-- An empty string counts as missing; numbers must be finite.
-- Booleans distinguish **Not set**, `true`, and `false`.
-- Saving incomplete inputs disables the config.
-- The config checkbox stays disabled until all inputs are filled. Then enable it manually.
-
-**Drafts**
-
-- Edits are saved locally as you type.
-- Closing the popup keeps the draft and the **Inputs · Unsaved** marker.
-- Reopening **Inputs** restores the draft.
-
-**After sync**
-
-Values are stored separately from configs, by config ID and input ID.
-
-| Change | Saved values and drafts |
-| --- | --- |
-| Same config ID, input ID, and type | Kept |
-| Only `name`, `description`, or `masked` changed | Kept |
-| Input type changed, or input/config deleted | Removed |
-
-If sync leaves inputs incomplete, the config is disabled automatically.
-
-**Security**
-
-- `masked` hides text in the popup; saved values and drafts are **not encrypted**.
-- Ready, enabled configs send resolved rules to pages. See [Runtime data visibility](limitations.md#runtime-data-visibility).
-
-## URL patterns
-
-`pattern` matches the absolute URL without query or hash.
-
-| Pattern | Matches |
-| --- | --- |
-| `*` | Zero or more characters, except `/` |
-| `**` | Zero or more characters, including `/` |
-| `?` | Exactly one character, except `/` |
-
-Use `query` for query parameters.
-
-## Query matching
-
-`query` is an optional, non-empty array of non-empty objects.
-
-- Objects: any one may match (OR).
-- Keys within an object: all must match (AND).
-- Each value: a string, or a non-empty string array where any item may match (OR).
+- Objects are alternatives: any one may match (OR).
+- Keys within an object must all match (AND).
+- A value is a string pattern or a non-empty array of string patterns; any item may match (OR).
 
 ```json
 {
@@ -310,25 +193,23 @@ Use `query` for query parameters.
 }
 ```
 
-For this example, either `status=active&page=1`, `status=draft&page=1`, or `preview` with zero or one character matches.
+This matches `status=active&page=1`, `status=draft&page=1`, or a present `preview` parameter with zero or one character.
 
-Matching rules:
+Names and values are case-sensitive. Specified parameters must be present; extra parameters are ignored. For repeated query parameters, at least one value must match. Query values are decoded, with `+` treated as a space.
 
-- Names and values are case-sensitive.
-- Configured parameters must be present; extra parameters are ignored.
-- Repeated parameters: at least one value must match.
-- Values are decoded with `URLSearchParams`; `+` becomes a space.
-- An empty pattern matches only an empty value.
+### Condition patterns
 
-All query wildcards can match `/` and line breaks:
+These wildcards apply to both `query` and `params`, and can match `/` and line breaks:
 
-| Pattern | Matches |
+| Syntax | Matches |
 | --- | --- |
 | `*` | Zero or more characters |
 | `?` | Zero or one character |
 | `+` | One or more characters |
 
-To match wildcard characters or backslashes literally:
+Unlike URL patterns, `?` here can match an empty value. An empty pattern matches only an empty value.
+
+Escape wildcard characters and backslashes to match them literally:
 
 | Write in JSON | Matches |
 | --- | --- |
@@ -337,4 +218,96 @@ To match wildcard characters or backslashes literally:
 | `"\\+"` | Literal `+` |
 | `"\\\\"` | Literal `\` |
 
-Other pattern backslash escapes are not allowed. Invalid escapes reject the entire sync.
+Other condition-pattern backslash escapes are invalid and reject sync.
+
+## Response
+
+These fields apply to both a single `response` and every item in `responses`:
+
+| Field | Meaning |
+| --- | --- |
+| `body` | Required, any JSON value |
+| `status` | Optional HTTP status, an integer from `200` to `599`; defaults to `200` |
+| `statusText` | Optional HTTP status text; defaults to an empty string |
+| `headers` | Optional object of header names and string values; includes `Content-Type: application/json` by default |
+| `delay` | Optional delay overriding the rule's delay |
+
+Custom headers replace default headers with the same name, ignoring case. Statuses `204`, `205`, and `304` require `body: null`.
+
+### Response delay
+
+Delays use milliseconds:
+
+- `500` — a fixed delay.
+- `{ "min": 200, "max": 800 }` — a uniformly random delay chosen for each request.
+
+Numbers must be finite and non-negative; ranges require both boundaries with `min <= max`. A response's delay overrides the rule's delay, including `0`; they are not added together. The default is `0`.
+
+## Inputs and templates
+
+Declare inputs in the top-level `inputs` object and supply their values locally, not in the JSON file. Every declared input is required. Input IDs follow the shared [variable naming rules](#template-syntax).
+
+Each input descriptor accepts only these fields:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `name` | Input ID | Non-empty label |
+| `description` | Omitted | Description of the input |
+| `type` | `"string"` | `"string"`, `"number"`, or `"boolean"` |
+| `masked` | `false` | Hides entered text; a boolean allowed only for string inputs |
+
+```json
+{
+  "id": "tenant-api",
+  "inputs": {
+    "tenant": { "name": "Tenant ID" },
+    "limit": { "type": "number" },
+    "preview": { "type": "boolean" }
+  },
+  "rules": [
+    {
+      "id": "list",
+      "pattern": "**/tenants/$[[tenant]]/items",
+      "response": {
+        "headers": { "X-Tenant": "$[[tenant]]" },
+        "body": {
+          "limit": "$[[limit]]",
+          "preview": "$[[preview]]",
+          "message": "Tenant $[[tenant]]"
+        }
+      }
+    }
+  ]
+}
+```
+
+### Template syntax
+
+| Syntax | Result |
+| --- | --- |
+| `$[[name]]` | Value of an input, URL capture, or `queryMap` variable |
+| `$$[[name]]` | Literal text `$[[name]]` |
+
+Variable names must match `[A-Za-z_][A-Za-z0-9_.]*`. Dots are ordinary name characters, not property access: `query.search`, `query..search`, and `query.` are valid; `.search` is not. Prefixes such as `query`, `path`, and `input` have no special meaning.
+
+Inputs, pattern captures, and `queryMap` variables share a namespace within each rule. Conflicts are checked by full name: `id` and `query.id` are different variables. Duplicate names, unknown references, and malformed placeholders reject sync; rename a conflicting variable to resolve it.
+
+| Template location | Available values |
+| --- | --- |
+| Rule `pattern` | Inputs only |
+| Rule or route `query` values, route `params` values | Inputs, this rule's URL captures and query variables |
+| String values anywhere in response `body`, response header values | Inputs, this rule's URL captures and query variables |
+
+Object keys and other fields such as `id`, `name`, `methods`, `status`, and `statusText` are not templates.
+
+When a body value is exactly one placeholder, its type is preserved: `"$[[limit]]"` becomes a number, `"$[[preview]]"` a boolean, and `"$[[query.tags]]"` an array when `tag` is repeated. URL captures are always strings. Interpolation such as `"Tenant $[[tenant]]"`, condition substitutions, and all header substitutions produce strings; arrays become comma-separated text, such as `red,blue`.
+
+Inserted values are literal: they are never parsed again as templates, wildcards, or captures. For example, an inserted `team-*` matches that exact text, not every name starting with `team-`.
+
+### Input values
+
+Values are local to your browser profile and survive sync while config ID, input ID, and type remain unchanged. Changing an input's type or deleting the input or config discards its values; label, description, and masking changes do not.
+
+Incomplete inputs disable the config. Empty strings count as missing, numbers must be finite, and `0` and `false` are valid values. After completing the inputs, enable the config again.
+
+`masked` does not encrypt values. Values used by enabled configs are visible to page scripts; see [Runtime data visibility](limitations.md#runtime-data-visibility).

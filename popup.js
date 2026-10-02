@@ -2,6 +2,7 @@ import { getDirectoryHandle, getConfigsAndSyncMeta, getConfigInputs, saveConfigI
 import { inputReadiness, inputsReady, resolveRuntimeRule } from "./inputs.js";
 import { syncConfigsFromDirectory } from "./config-sync.js";
 
+const mainElement = document.querySelector("main");
 const configsElement = document.querySelector("#configs");
 const lastSyncElement = document.querySelector("#last-sync");
 const statusElement = document.querySelector("#status");
@@ -12,6 +13,7 @@ const collapseAllButton = document.querySelector("#collapse-all");
 const syncStatusElement = document.querySelector("#sync-status");
 const INPUT_DRAFT_PREFIX = "config-input-draft:";
 const COLLAPSED_CONFIG_PREFIX = "collapsed-config:";
+const SCROLL_POSITION_KEY = "popup-scroll-top";
 let directoryHandle = null;
 let syncInProgress = false;
 let editingConfigId = null;
@@ -33,9 +35,16 @@ async function initialize() {
     directoryHandle = await getDirectoryHandle();
     syncButton.hidden = !directoryHandle;
     await render();
+    mainElement.scrollTop = Number(localStorage.getItem(SCROLL_POSITION_KEY));
+    mainElement.addEventListener("scrollend", saveScrollPosition);
+    window.addEventListener("pagehide", saveScrollPosition);
   } catch (error) {
     statusElement.textContent = error instanceof Error ? error.message : String(error);
   }
+}
+
+function saveScrollPosition() {
+  localStorage.setItem(SCROLL_POSITION_KEY, String(mainElement.scrollTop));
 }
 
 async function render() {
@@ -640,7 +649,7 @@ function renderRoutingDetails(rule) {
   table.className = "routes-table";
   const head = document.createElement("thead");
   const headRow = document.createElement("tr");
-  for (const label of ["Query", "Response"]) {
+  for (const label of ["Conditions", "Response"]) {
     const cell = document.createElement("th");
     cell.scope = "col";
     cell.textContent = label;
@@ -655,8 +664,18 @@ function renderRoutingDetails(rule) {
     const routeRow = document.createElement("tr");
     const conditionsCell = document.createElement("td");
     conditionsCell.className = "route-conditions";
-    if (route.query) {
-      appendQueryGroups(conditionsCell, route.query);
+    if (route.params || route.query) {
+      for (const [label, groups] of [["Params", route.params], ["Query", route.query]]) {
+        if (!groups) continue;
+        const section = document.createElement("div");
+        section.className = "route-condition-section";
+        const heading = document.createElement("div");
+        heading.className = "route-condition-label";
+        heading.textContent = label;
+        section.append(heading);
+        appendConditionGroups(section, groups);
+        conditionsCell.append(section);
+      }
     } else {
       const fallback = document.createElement("div");
       fallback.className = "query-condition-group route-fallback";
@@ -684,26 +703,26 @@ function renderQueryDetails(query) {
   details.append(summary);
   const groups = document.createElement("div");
   groups.className = "query-groups";
-  appendQueryGroups(groups, query);
+  appendConditionGroups(groups, query);
   details.append(groups);
   return details;
 }
 
-function appendQueryGroups(container, query) {
-  for (const alternative of query) {
+function appendConditionGroups(container, groups) {
+  for (const alternative of groups) {
     const group = document.createElement("div");
     group.className = "query-condition-group";
     for (const [name, values] of Object.entries(alternative)) {
       const condition = document.createElement("div");
       condition.className = "query-condition";
-      condition.textContent = `${name}: ${values.map(displayQueryValue).join(" | ")}`;
+      condition.textContent = `${name}: ${values.map(displayConditionValue).join(" | ")}`;
       group.append(condition);
     }
     container.append(group);
   }
 }
 
-function displayQueryValue(value) {
+function displayConditionValue(value) {
   return value === "" ? '""' : value;
 }
 

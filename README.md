@@ -23,7 +23,7 @@ Configs stay on your device, so you can edit them in your IDE, keep them in Git,
 
 ## Examples
 
-Configs can declare required inputs, reference them as `${inputId}`, and keep their values locally in the popup instead of in JSON files. Unsaved edits are restored if the popup closes. See [input templates](docs/configuration.md#inputs-and-templates).
+Configs can declare required inputs and use `$[[name]]` templates; URL captures and inputs share one namespace. Input values stay locally in the popup instead of in JSON files. Unsaved edits are restored if the popup closes. See [inputs and templates](docs/configuration.md#inputs-and-templates).
 
 Rules and individual responses can set a fixed `delay` in milliseconds or a random range such as `{ "min": 200, "max": 800 }`. A response's delay overrides the rule's delay. See [response delay](docs/configuration.md#response-delay).
 
@@ -50,6 +50,7 @@ https://example.com/api/organizations/42/users/active
 ```
 
 URL patterns are matched against the complete absolute URL without query parameters or hash.
+Use `{id}` to capture one non-empty path segment or `{path:**}` to capture zero or more characters, including `/`. Captures can be used in query/params conditions and response content; see the [configuration reference](docs/configuration.md#url-patterns).
 
 ### One response
 
@@ -185,7 +186,28 @@ Add ordered `routes` when the request query parameters should select the respons
 | `GET /api/projects?status=unknown` | `fallback_response_id` |
 | `GET /api/projects` | `fallback_response_id` |
 
-Routes are checked in array order. An optional final route without `query` acts as the fallback.
+Routes are checked in array order. A route without `query` and `params` acts as fallback; at most one is allowed, and it must be last.
+
+### Path captures in routes
+
+Capture a path and use it to match query values and build a response:
+
+```json
+{
+  "id": "team-files",
+  "pattern": "**/teams/{id}/files/{path:**}",
+  "responses": [{ "id": "file", "body": { "team": "$[[id]]", "path": "$[[path]]" } }],
+  "routes": [{
+    "params": [{ "id": ["alpha", "beta"], "path": "*.json" }],
+    "query": [{ "owner": "$[[id]]" }],
+    "responseId": "file"
+  }]
+}
+```
+
+For example, `/teams/alpha/files/reports/daily.json?owner=alpha` returns `{"team":"alpha","path":"reports/daily.json"}`. Both `params` and `query` must match.
+
+Capture names must not conflict with inputs; rename conflicting names to make the config valid.
 
 ## Sync workflow
 

@@ -1,4 +1,4 @@
-const INPUT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const INPUT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_.]*$/;
 const INPUT_TYPES = new Set(["string", "number", "boolean"]);
 
 export function normalizeInputs(value, prefix) {
@@ -42,31 +42,52 @@ export function normalizeInputs(value, prefix) {
   return result;
 }
 
+export function normalizeQueryMap(value, namespace, prefix) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${prefix}: queryMap must be an object`);
+  }
+  const result = Object.create(null);
+  const names = new Set();
+  for (const [parameter, id] of Object.entries(value)) {
+    if (!parameter.trim()) throw new Error(`${prefix}: queryMap parameter names must be non-empty`);
+    if (typeof id !== "string" || !INPUT_ID_PATTERN.test(id)) {
+      throw new Error(`${prefix}: invalid queryMap variable name for "${parameter}"`);
+    }
+    if (Object.hasOwn(namespace, id) || names.has(id)) {
+      throw new Error(`${prefix}: queryMap variable "${id}" conflicts with another variable`);
+    }
+    names.add(id);
+    result[parameter] = id;
+  }
+  return result;
+}
+
 export function parseTemplate(text, inputs, location) {
   const parts = [];
   let literal = "";
   let index = 0;
   while (index < text.length) {
-    if (text.startsWith("$${", index)) {
-      literal += "${";
-      index += 3;
+    if (text.startsWith("$$[[", index)) {
+      literal += "$[[";
+      index += 4;
       continue;
     }
-    if (text.startsWith("${", index)) {
-      const end = text.indexOf("}", index + 2);
+    if (text.startsWith("$[[", index)) {
+      const end = text.indexOf("]]", index + 3);
       if (end < 0) {
-        throw new Error(`${location}: malformed input placeholder`);
+        throw new Error(`${location}: malformed template reference`);
       }
-      const id = text.slice(index + 2, end);
+      const id = text.slice(index + 3, end);
       if (!INPUT_ID_PATTERN.test(id) || !Object.hasOwn(inputs || {}, id)) {
-        throw new Error(`${location}: unknown or invalid input "${id}"`);
+        throw new Error(`${location}: unknown or invalid template reference "${id}"`);
       }
       if (literal) {
         parts.push({ literal });
       }
       literal = "";
       parts.push({ id });
-      index = end + 1;
+      index = end + 2;
       continue;
     }
     literal += text[index];
@@ -108,14 +129,53 @@ function globSource(text) {
 
 export function compilePattern(text, inputs, values, location) {
   let source = "";
-  for (const part of parseTemplate(text, inputs, location)) {
+  for (const part of parsePatternParts(text, inputs, location)) {
     if ("id" in part) {
       source += escapeRegExp(String(values[part.id]));
+    } else if ("capture" in part) {
+      if (part.wildcard) source += "([\\s\\S]*)";
+      else source += "([^/]+)";
     } else {
       source += globSource(part.literal);
     }
   }
   return `^${source}$`;
+}
+
+export function getPatternParams(text, inputs, location) {
+  return parsePatternParts(text, inputs, location).filter((part) => "capture" in part).map((part) => part.capture);
+}
+
+function parsePatternParts(text, inputs, location) {
+  const result = [];
+  const names = new Set();
+  for (const part of parseTemplate(text, inputs, location)) {
+    if ("id" in part) {
+      result.push(part);
+      continue;
+    }
+    let literal = "";
+    for (let index = 0; index < part.literal.length;) {
+      if (part.literal[index] === "}") throw new Error(`${location}: malformed pattern capture`);
+      if (part.literal[index] !== "{") { literal += part.literal[index++]; continue; }
+      const end = part.literal.indexOf("}", index + 1);
+      if (end < 0) throw new Error(`${location}: malformed pattern capture`);
+      const token = part.literal.slice(index + 1, end);
+      const wildcard = token.endsWith(":**");
+      let id = token;
+      if (wildcard) id = token.slice(0, -3);
+      if (!INPUT_ID_PATTERN.test(id)) throw new Error(`${location}: invalid pattern capture "${token}"`);
+      if (Object.hasOwn(inputs || {}, id)) throw new Error(`${location}: capture "${id}" conflicts with an input`);
+      if (names.has(id)) throw new Error(`${location}: capture "${id}" is duplicated`);
+      names.add(id);
+      if (literal) result.push({ literal });
+      literal = "";
+      result.push({ capture: id, wildcard });
+      index = end + 1;
+    }
+    if (literal) result.push({ literal });
+  }
+  return result;
 }
 
 export function resolveQuery(text, inputs, values, location) {
@@ -147,35 +207,63 @@ export function resolveValue(value, inputs, values, location) {
 export function resolveRuntimeRule(rule, descriptors, values) {
   const resolved = structuredClone(rule);
   resolved.matcherSource = compilePattern(rule.pattern, descriptors, values, `rule ${rule.id}.pattern`);
-  resolveQueryGroups(resolved.query, descriptors, values, `rule ${rule.id}.query`);
+  const captures = getPatternParams(rule.pattern, descriptors, `rule ${rule.id}.pattern`);
+  resolved.patternParams = captures;
+  const runtimeNames = new Set([...captures, ...Object.values(rule.queryMap || {})]);
+  const namespace = { ...(descriptors || {}), ...Object.fromEntries([...runtimeNames].map((id) => [id, true])) };
+  const valueTemplates = [];
+  const prepareText = (text, path, { query = false, header = false, exactTyped = false } = {}) => {
+    const location = `rule ${rule.id}.${path.join(".")}`;
+    const parts = parseTemplate(text, namespace, location);
+    if (exactTyped && parts.length === 1 && "id" in parts[0] && !runtimeNames.has(parts[0].id)) return values[parts[0].id];
+    const runtimeParts = [];
+    let partial = "";
+    for (const part of parts) {
+      if ("literal" in part) {
+        runtimeParts.push(part);
+        partial += part.literal;
+      } else if (runtimeNames.has(part.id)) {
+        runtimeParts.push({ id: part.id });
+      } else {
+        let literal = String(values[part.id]);
+        if (query) literal = literal.replace(/[\\*?+]/g, "\\$&");
+        runtimeParts.push({ literal });
+        partial += literal;
+      }
+    }
+    if (runtimeParts.some((part) => "id" in part)) valueTemplates.push({ path, parts: runtimeParts, query, header, exactTyped });
+    if (header && !isValidHttpText(partial)) throw new Error(`${location}: invalid resolved HTTP header value`);
+    return partial;
+  };
+  const prepareConditions = (groups, path) => groups?.map((group, groupIndex) =>
+    Object.fromEntries(Object.entries(group).map(([key, patterns]) => [key,
+      patterns.map((text, index) => prepareText(text, [...path, groupIndex, key, index], { query: true }))
+    ])));
+  const prepareBody = (value, path) => {
+    if (typeof value === "string") return prepareText(value, path, { exactTyped: true });
+    if (Array.isArray(value)) return value.map((item, index) => prepareBody(item, [...path, index]));
+    if (value && typeof value === "object") {
+      const entries = Object.entries(value).map(([key, item]) => [key, prepareBody(item, [...path, key])]);
+      return Object.fromEntries(entries);
+    }
+    return value;
+  };
+  resolved.query = prepareConditions(rule.query, ["query"]);
   resolved.routes?.forEach((route, index) => {
-    resolveQueryGroups(route.query, descriptors, values, `rule ${rule.id}.routes[${index}].query`);
+    route.query = prepareConditions(rule.routes[index].query, ["routes", index, "query"]);
+    route.params = prepareConditions(rule.routes[index].params, ["routes", index, "params"]);
   });
   const responses = resolved.responses || [resolved.response];
   responses.forEach((response, index) => {
-    const responseLocation = resolved.responses ? `responses[${index}]` : "response";
-    response.body = resolveValue(response.body, descriptors, values, `rule ${rule.id}.${responseLocation}.body`);
+    let path = ["response"];
+    if (resolved.responses) path = ["responses", index];
+    response.body = prepareBody(response.body, [...path, "body"]);
     for (const [name, value] of Object.entries(response.headers)) {
-      const location = `rule ${rule.id}.${responseLocation}.headers.${name}`;
-      const resolvedValue = resolveString(value, descriptors, values, location);
-      if (!isValidHttpText(resolvedValue)) {
-        throw new Error(`${location}: invalid resolved HTTP header value`);
-      }
-      response.headers[name] = resolvedValue;
+      response.headers[name] = prepareText(value, [...path, "headers", name], { header: true });
     }
   });
+  if (valueTemplates.length) resolved.valueTemplates = valueTemplates;
   return resolved;
-}
-
-function resolveQueryGroups(query, descriptors, values, location) {
-  if (!query) {
-    return;
-  }
-  for (const group of query) {
-    for (const key of Object.keys(group)) {
-      group[key] = group[key].map((value) => resolveQuery(value, descriptors, values, `${location}.${key}`));
-    }
-  }
 }
 
 function isValidHttpText(value) {

@@ -303,6 +303,16 @@ summary input {
     font-weight: 500;
 }
 
+.route-condition-section + .route-condition-section {
+    margin-top: 6px;
+}
+
+.route-condition-label {
+    margin-bottom: 3px;
+    font-weight: 600;
+    opacity: 0.75;
+}
+
 .query-condition-group {
     padding: 2px 4px;
     border: 1px solid #8885;
