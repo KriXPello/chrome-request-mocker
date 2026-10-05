@@ -245,7 +245,7 @@ Numbers must be finite and non-negative; ranges require both boundaries with `mi
 
 ## Inputs and templates
 
-Declare inputs in the top-level `inputs` object and supply their values locally, not in the JSON file. Every declared input is required. Input IDs follow the shared [variable naming rules](#template-syntax).
+Declare inputs in the top-level `inputs` object and supply values locally or set a `default` in the config. Every declared input needs a value. Input IDs follow the shared [variable naming rules](#template-syntax).
 
 Each input descriptor accepts only these fields:
 
@@ -253,16 +253,18 @@ Each input descriptor accepts only these fields:
 | --- | --- | --- |
 | `name` | Input ID | Non-empty label |
 | `description` | Omitted | Description of the input |
-| `type` | `"string"` | `"string"`, `"number"`, or `"boolean"` |
+| `type` | `"string"` | `"string"`, `"number"`, `"boolean"`, `"datetime"`, or `"relative-datetime"` |
 | `masked` | `false` | Hides entered text; a boolean allowed only for string inputs |
+| `format` | `"iso"` | Date/time inputs only: `"iso"`, `"timestamp-ms"`, or `"timestamp-s"` |
+| `default` | Omitted | Initial value: matches the input type; ISO string for `datetime`, seconds offset for `relative-datetime` |
 
 ```json
 {
   "id": "tenant-api",
   "inputs": {
     "tenant": { "name": "Tenant ID" },
-    "limit": { "type": "number" },
-    "preview": { "type": "boolean" }
+    "limit": { "type": "number", "default": 20 },
+    "preview": { "type": "boolean", "default": false }
   },
   "rules": [
     {
@@ -304,10 +306,35 @@ When a body value is exactly one placeholder, its type is preserved: `"$[[limit]
 
 Inserted values are literal: they are never parsed again as templates, wildcards, or captures. For example, an inserted `team-*` matches that exact text, not every name starting with `team-`.
 
+### Date and time inputs
+
+Use `datetime` for a fixed date or `relative-datetime` for current time plus an offset in seconds:
+
+```json
+{
+  "inputs": {
+    "createdAt": { "type": "datetime" },
+    "statusChangedAt": { "type": "relative-datetime", "format": "timestamp-ms", "default": -30 }
+  }
+}
+```
+
+Use `"$[[statusChangedAt]]"` in a response body:
+
+| `format` | Exact body placeholder produces |
+| --- | --- |
+| `"iso"` (default) | UTC ISO string, e.g. `"2026-10-05T12:00:00.000Z"` |
+| `"timestamp-ms"` | Number of milliseconds since the Unix epoch |
+| `"timestamp-s"` | Number of whole seconds since the Unix epoch, rounded down |
+
+Fixed dates are entered in the browser's local time zone. Relative offsets default to `0`; `-30` means 30 seconds ago. Relative dates are saved, not recalculated per request; changing `format` preserves the date. Headers and interpolated strings produce text.
+
 ### Input values
 
-Values are local to your browser profile and survive sync while config ID, input ID, and type remain unchanged. Changing an input's type or deleting the input or config discards its values; label, description, and masking changes do not.
+Sync fills missing values from `default`; saved values take precedence, even if the default changes. Defaults must be valid, non-empty values. A `datetime` default is a UTC ISO string such as `"2026-10-05T12:00:00.000Z"`, regardless of output format. Newly applied relative defaults share one current time at sync, not per request.
 
-Incomplete inputs disable the config. Empty strings count as missing, numbers must be finite, and `0` and `false` are valid values. After completing the inputs, enable the config again.
+Values are local to your browser profile and survive sync while config ID, input ID, and type remain unchanged. Changing an input's type or deleting the input or config discards its values; label, description, masking, and format changes do not.
+
+Incomplete inputs disable the config. Empty strings count as missing, numbers must be finite, and `0` and `false` are valid values. Date/time inputs require a valid fixed date or a finite relative offset that produces a valid date. After completing the inputs, enable the config again.
 
 `masked` does not encrypt values. Values used by enabled configs are visible to page scripts; see [Runtime data visibility](limitations.md#runtime-data-visibility).

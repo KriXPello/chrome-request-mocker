@@ -1,6 +1,8 @@
-import { getDirectoryHandle, getConfigsAndSyncMeta, getConfigInputs, saveConfigInputs, setConfigDisplayOrder, setConfigEnabled, setRuleEnabled, setRuleResponseId, toggleAllConfigs } from "./db.js";
-import { inputReadiness, inputsReady, resolveRuntimeRule } from "./inputs.js";
+import { getDirectoryHandle, getConfigsAndSyncMeta, getConfigInputs, saveConfigInputs, resetConfigTime, setConfigDisplayOrder, setConfigEnabled, setRuleEnabled, setRuleResponseId, toggleAllConfigs } from "./db.js";
+import { inputReadiness, inputsReady, resolveRuntimeRule, resolveInputDefault } from "./inputs.js";
 import { syncConfigsFromDirectory } from "./config-sync.js";
+import { datetimeInputAsRaw, isValidRelativeDatetimeInput } from "./datetime.js";
+import { createDatetimeControl, createRelativeDatetimeControl } from "./datetime-control.js";
 
 const mainElement = document.querySelector("main");
 const configsElement = document.querySelector("#configs");
@@ -113,7 +115,7 @@ async function syncFromFolder() {
 }
 
 function setInteractionState() {
-  syncButton.disabled = syncInProgress || configToggleInProgress || configOrderUpdateInProgress || editingConfigId !== null;
+  syncButton.disabled = syncInProgress || inputSaveInProgress || configToggleInProgress || configOrderUpdateInProgress || editingConfigId !== null;
   reorderButton.disabled = syncInProgress || inputSaveInProgress || configToggleInProgress || configOrderUpdateInProgress
     || editingConfigId !== null || reorderButton.dataset.unavailable === "true";
   if (reorderMode) {
@@ -216,6 +218,33 @@ function renderConfig(config, values = {}, draftValues = null) {
         editingConfigId = config.id;
         render();
       });
+      const hasRelativeTime = Object.entries(config.inputs).some(([id, descriptor]) =>
+        descriptor.type === "relative-datetime" && isValidRelativeDatetimeInput(values[id]));
+      if (hasRelativeTime) {
+        const resetButton = document.createElement("button");
+        resetButton.type = "button";
+        resetButton.className = "reset-time-button";
+        resetButton.title = "Refresh relative time";
+        resetButton.setAttribute("aria-label", "Refresh relative time");
+        const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        icon.setAttribute("viewBox", "0 0 24 24");
+        icon.setAttribute("fill", "none");
+        icon.setAttribute("stroke", "currentColor");
+        icon.setAttribute("stroke-width", "1.7");
+        icon.setAttribute("stroke-linecap", "round");
+        icon.setAttribute("stroke-linejoin", "round");
+        icon.setAttribute("aria-hidden", "true");
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "M3 10a9 9 0 1 1 1.4 7M3 5v5h5M12 7v5l3 2");
+        icon.append(path);
+        resetButton.append(icon);
+        resetButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          resetTime(config);
+        });
+        actions.append(resetButton);
+      }
       actions.append(editButton);
     }
   }
@@ -491,6 +520,11 @@ function inputDraftDiffers(config, savedValues, rawValues) {
 }
 
 function storedInputAsRaw(descriptor, value) {
+  if (descriptor.type === "datetime") return datetimeInputAsRaw(value);
+  if (descriptor.type === "relative-datetime") {
+    if (isValidRelativeDatetimeInput(value)) return String(value.offsetSeconds);
+    return "0";
+  }
   if (descriptor.type === "boolean") {
     return typeof value === "boolean" ? String(value) : "";
   }
@@ -532,8 +566,13 @@ function createInputEditor(config, values, draftValues, onChange) {
   const controls = Object.create(null);
   for (const [id, descriptor] of Object.entries(config.inputs)) {
     const label = document.createElement("label");
+    const heading = document.createElement("span");
+    heading.className = "input-heading";
     const title = document.createElement("span");
-    title.textContent = descriptor.name || id;
+    title.className = "input-title";
+    const name = document.createElement("span");
+    name.textContent = descriptor.name || id;
+    title.append(name);
     if (descriptor.description) {
       const help = document.createElement("button");
       help.type = "button";
@@ -543,18 +582,76 @@ function createInputEditor(config, values, draftValues, onChange) {
       help.setAttribute("aria-label", descriptor.description);
       title.append(help);
     }
-    label.append(title);
+    heading.append(title);
+    const metadata = document.createElement("small");
+    metadata.className = "input-meta";
+    metadata.textContent = descriptor.type;
+    heading.append(metadata);
+    label.append(heading);
     const hasDraft = draftValues !== null;
     const value = hasDraft ? draftValues[id] : values[id];
-    const control = createInputControl(id, descriptor, value, label, hasDraft);
+    const control = createInputControl(id, descriptor, value, label, hasDraft, values[id]);
     controls[id] = control;
-    control.addEventListener(control instanceof HTMLSelectElement ? "change" : "input", () => onChange(controls));
+    if (Object.hasOwn(descriptor, "default")) {
+      let defaultText = String(descriptor.default);
+      if (descriptor.masked) defaultText = "••••••••";
+      metadata.textContent = `${descriptor.type}, default: ${defaultText}`;
+
+      const resetButton = document.createElement("button");
+      resetButton.type = "button";
+      resetButton.className = "input-reset-default";
+      resetButton.title = "Reset to default";
+      resetButton.setAttribute("aria-label", `Reset ${descriptor.name || id} to default`);
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      icon.setAttribute("viewBox", "0 0 24 24");
+      icon.setAttribute("fill", "none");
+      icon.setAttribute("stroke", "currentColor");
+      icon.setAttribute("stroke-width", "1.8");
+      icon.setAttribute("stroke-linecap", "round");
+      icon.setAttribute("stroke-linejoin", "round");
+      icon.setAttribute("aria-hidden", "true");
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M3 11a9 9 0 1 1 2.64 6.36M3 4v7h7");
+      icon.append(path);
+      resetButton.append(icon);
+      resetButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        try {
+          const defaultValue = resolveInputDefault(descriptor, Date.now());
+          control.setRawValue(storedInputAsRaw(descriptor, defaultValue));
+          onChange(controls);
+        } catch (error) {
+          showError(error);
+        }
+      });
+      label.append(resetButton);
+    }
+    label.addEventListener("input", () => onChange(controls));
+    label.addEventListener("change", () => onChange(controls));
     element.append(label);
   }
   return { element, controls };
 }
 
-function createInputControl(id, descriptor, value, label, valueIsRaw) {
+function createInputControl(id, descriptor, value, label, valueIsRaw, savedValue) {
+  const name = descriptor.name || id;
+  if (descriptor.type === "datetime") {
+    label.className = "datetime-input";
+    let raw = datetimeInputAsRaw(value);
+    if (valueIsRaw) raw = value;
+    const control = createDatetimeControl(raw, savedValue, name);
+    label.append(control.element);
+    return control;
+  }
+  if (descriptor.type === "relative-datetime") {
+    label.className = "datetime-input";
+    let raw = storedInputAsRaw(descriptor, value);
+    if (valueIsRaw) raw = value;
+    const control = createRelativeDatetimeControl(raw, savedValue, name, descriptor.format);
+    label.append(control.element);
+    return control;
+  }
   if (descriptor.type === "boolean") {
     const select = document.createElement("select");
     for (const [optionValue, text] of [["", "Not set"], ["true", "true"], ["false", "false"]]) {
@@ -563,27 +660,86 @@ function createInputControl(id, descriptor, value, label, valueIsRaw) {
       option.textContent = text;
       select.append(option);
     }
-    select.value = valueIsRaw ? value : typeof value === "boolean" ? String(value) : "";
+    select.value = "";
+    if (valueIsRaw) select.value = value;
+    else if (typeof value === "boolean") select.value = String(value);
     label.append(select);
-    return select;
+    return {
+      element: select,
+      getRawValue: () => select.value,
+      setRawValue: (raw) => { select.value = raw; },
+      getValue() {
+        if (select.value === "") return undefined;
+        return select.value === "true";
+      }
+    };
   }
 
+  if (descriptor.type === "number") {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "any";
+    input.value = value ?? "";
+    label.append(input);
+    return {
+      element: input,
+      getRawValue: () => input.value,
+      setRawValue: (raw) => { input.value = raw; },
+      getValue() {
+        if (input.validity.badInput) throw new Error(`${name}: enter a valid finite number.`);
+        if (input.value === "") return undefined;
+        const number = Number(input.value);
+        if (!Number.isFinite(number)) throw new Error(`${name}: enter a valid finite number.`);
+        return number;
+      }
+    };
+  }
   const input = document.createElement("input");
-  input.type = descriptor.type === "number" ? "number" : descriptor.masked ? "password" : "text";
+  input.type = "text";
   input.value = value ?? "";
-  if (descriptor.type === "number") input.step = "any";
-  label.append(input);
   if (descriptor.masked) {
+    input.type = "password";
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.textContent = "Show";
     toggle.addEventListener("click", () => {
-      input.type = input.type === "password" ? "text" : "password";
-      toggle.textContent = input.type === "password" ? "Show" : "Hide";
+      if (input.type === "password") {
+        input.type = "text";
+        toggle.textContent = "Hide";
+      } else {
+        input.type = "password";
+        toggle.textContent = "Show";
+      }
     });
-    label.append(toggle);
+    label.append(input, toggle);
+  } else {
+    label.append(input);
   }
-  return input;
+  return {
+    element: input,
+    getRawValue: () => input.value,
+    setRawValue: (raw) => { input.value = raw; },
+    getValue() {
+      if (input.value === "") return undefined;
+      return input.value;
+    }
+  };
+}
+
+async function resetTime(config) {
+  if (syncInProgress || inputSaveInProgress || configToggleInProgress || configOrderUpdateInProgress || editingConfigId !== null) return;
+  inputSaveInProgress = true;
+  setInteractionState();
+  try {
+    await resetConfigTime(config.id, config.importedAt);
+    await notifyRuntimeConfig();
+    await render();
+  } catch (error) {
+    showError(error);
+  } finally {
+    inputSaveInProgress = false;
+    setInteractionState();
+  }
 }
 
 async function commitInputDraft(config, controls, wasIncomplete) {
@@ -611,29 +767,17 @@ async function commitInputDraft(config, controls, wasIncomplete) {
 function collectRawInputValues(config, controls) {
   const values = Object.create(null);
   for (const id of Object.keys(config.inputs)) {
-    values[id] = controls[id].value;
+    values[id] = controls[id].getRawValue();
   }
   return values;
 }
 
 function collectInputValues(config, controls) {
   const values = Object.create(null);
-  for (const [id, descriptor] of Object.entries(config.inputs)) {
-    const control = controls[id];
-    const label = descriptor.name || id;
-    const raw = control.value;
-    if (descriptor.type === "string") {
-      if (raw !== "") values[id] = raw;
-    } else if (descriptor.type === "number") {
-      if (control.validity.badInput) throw new Error(`${label}: enter a valid finite number.`);
-      if (raw !== "") {
-        const number = Number(raw);
-        if (!Number.isFinite(number)) throw new Error(`${label}: enter a valid finite number.`);
-        values[id] = number;
-      }
-    } else if (raw !== "") {
-      values[id] = raw === "true";
-    }
+  const now = Date.now();
+  for (const id of Object.keys(config.inputs)) {
+    const value = controls[id].getValue(now);
+    if (value !== undefined) values[id] = value;
   }
   return values;
 }

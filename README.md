@@ -21,11 +21,38 @@ Configs stay on your device, so you can edit them in your IDE, keep them in Git,
 7. Enable the configs and rules you need in the popup.
 8. Changes apply to open pages after sync; no reload is required.
 
-## Examples
+## Features
 
-Configs can declare required inputs and use `$[[name]]` templates; URL captures and inputs share one namespace. Input values stay locally in the popup instead of in JSON files. Unsaved edits are restored if the popup closes. See [inputs and templates](docs/configuration.md#inputs-and-templates).
+Configs can declare inputs with optional `default` values and use `$[[name]]` templates; URL captures and inputs share one namespace. Defaults fill missing values on sync; saved values stay local and take precedence. Unsaved edits are restored if the popup closes. See [inputs and templates](docs/configuration.md#inputs-and-templates).
+
+Use `"type": "datetime"` for a fixed date or `"type": "relative-datetime"` for current time with an offset in seconds; set the output `format` in the config. Relative dates stay fixed between requests; **Refresh relative time** button recalculates them together. See [date and time inputs](docs/configuration.md#date-and-time-inputs).
 
 Rules and individual responses can set a fixed `delay` in milliseconds or a random range such as `{ "min": 200, "max": 800 }`. A response's delay overrides the rule's delay. See [response delay](docs/configuration.md#response-delay).
+
+## Examples
+
+The first example is a complete config file. The remaining JSON snippets are individual rules to add to its `rules` array.
+
+### Minimal config
+
+This config returns an empty project list for GET requests to `/api/projects`:
+
+```json
+{
+  "id": "demo",
+  "name": "Demo API",
+  "rules": [
+    {
+      "id": "projects-list",
+      "pattern": "**/api/projects",
+      "methods": ["GET"],
+      "response": {
+        "body": { "items": [] }
+      }
+    }
+  ]
+}
+```
 
 ### Combining `*` and `**` in URL patterns
 
@@ -52,37 +79,28 @@ https://example.com/api/organizations/42/users/active
 URL patterns are matched against the complete absolute URL without query parameters or hash.
 Use `{id}` to capture one non-empty path segment or `{path:**}` to capture zero or more characters, including `/`. Captures can be used in query/params conditions and response content; see the [configuration reference](docs/configuration.md#url-patterns).
 
-### One response
+### Query conditions
 
-The simplest rule returns one fixed response. It can optionally restrict requests by HTTP method and query parameters:
+Add `query` conditions to restrict which requests a rule matches:
 
 ```json
 {
-  "id": "demo",
-  "name": "Demo API",
-  "rules": [
+  "id": "projects-search",
+  "name": "Project search",
+  "pattern": "**/api/projects",
+  "methods": ["GET"],
+  "query": [
     {
-      "id": "projects-search",
-      "name": "Project search",
-      "pattern": "**/api/projects",
-      "methods": ["GET"],
-      "query": [
-        {
-          "status": ["active", "draft"],
-          "search": "project-*"
-        },
-        {
-          "preview": "?"
-        }
-      ],
-      "response": {
-        "status": 200,
-        "body": {
-          "items": []
-        }
-      }
+      "status": ["active", "draft"],
+      "search": "project-*"
+    },
+    {
+      "preview": "?"
     }
-  ]
+  ],
+  "response": {
+    "body": { "items": [] }
+  }
 }
 ```
 

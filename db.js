@@ -1,3 +1,6 @@
+import { isValidInputValue, resolveInputDefault } from "./inputs.js";
+import { relativeDatetimeValue } from "./datetime.js";
+
 const DB_NAME = "local-mock";
 const DB_VERSION = 3;
 const DIRECTORY_KEY = "config-directory";
@@ -155,16 +158,46 @@ function sameInputTypes(current, expected) {
     Object.hasOwn(current, id) && current[id]?.type === descriptor.type);
 }
 
-function isValidInputValue(type, value) {
-  if (type === "boolean") return typeof value === "boolean";
-  if (type === "number") return typeof value === "number" && Number.isFinite(value);
-  if (type === "string") return typeof value === "string" && value.length > 0;
-  return false;
-}
-
 function hasAllInputValues(descriptors, values) {
   return Object.entries(descriptors).every(([id, descriptor]) =>
     Object.hasOwn(values, id) && isValidInputValue(descriptor.type, values[id]));
+}
+
+export function resetConfigTime(configId, importedAt) {
+  return withDb((db) => transaction(db, ["configs", "inputs"], "readwrite", (tx, abort) => {
+    const configRequest = tx.objectStore("configs").get(configId);
+    const range = IDBKeyRange.bound([configId, ""], [configId, "\uffff"]);
+    const inputsRequest = tx.objectStore("inputs").getAll(range);
+    let config;
+    let rows;
+    let configReady = false;
+    let rowsReady = false;
+
+    const applyReset = () => {
+      if (!configReady || !rowsReady) return;
+      if (!config || config.importedAt !== importedAt) {
+        abort(new Error("The config changed or was removed. Reopen it and try resetting its time again."));
+        return;
+      }
+
+      const now = Date.now();
+      for (const row of rows) {
+        const descriptor = config.inputs?.[row.inputId];
+        const value = row.value;
+        if (descriptor?.type !== "relative-datetime" || !isValidInputValue(descriptor.type, value)) continue;
+        let resolved;
+        try {
+          resolved = relativeDatetimeValue(value.offsetSeconds, now);
+        } catch (error) {
+          abort(new Error(`Input "${row.inputId}": ${error.message}`));
+          return;
+        }
+        tx.objectStore("inputs").put({ ...row, value: { ...value, value: resolved } });
+      }
+    };
+    configRequest.onsuccess = () => { config = configRequest.result; configReady = true; applyReset(); };
+    inputsRequest.onsuccess = () => { rows = inputsRequest.result; rowsReady = true; applyReset(); };
+  }));
 }
 
 export function setConfigEnabled(id, enabled) {
@@ -286,7 +319,7 @@ export function getConfigsAndSyncMeta() {
 }
 
 export function replaceConfigsAfterSync(configs, meta) {
-  return withDb((db) => transaction(db, ["configs", "meta", "inputs"], "readwrite", (tx) => {
+  return withDb((db) => transaction(db, ["configs", "meta", "inputs"], "readwrite", (tx, abort) => {
     const configsStore = tx.objectStore("configs");
     const metaStore = tx.objectStore("meta");
     const inputStore = tx.objectStore("inputs");
@@ -308,20 +341,40 @@ export function replaceConfigsAfterSync(configs, meta) {
         return compareConfigSource(left, right);
       });
       const storedValues = new Map(inputRows.map((item) => [`${item.configId}\0${item.inputId}`, item.value]));
+      const retainedInputs = new Set();
+      const defaultsAt = Date.now();
       configsStore.clear();
-      configsInDisplayOrder.forEach((config, displayOrder) => {
+      for (const [displayOrder, config] of configsInDisplayOrder.entries()) {
         const previous = old.get(config.id);
         const oldRules = new Map((previous?.rules || []).map((rule) => [rule.id, rule]));
         const previousInputsComplete = Object.entries(previous?.inputs || {}).every(([inputId, descriptor]) => {
           const key = `${config.id}\0${inputId}`;
           return storedValues.has(key) && isValidInputValue(descriptor.type, storedValues.get(key));
         });
-        const inputsComplete = Object.entries(config.inputs || {}).every(([inputId, descriptor]) => {
+        const values = Object.create(null);
+        for (const [inputId, descriptor] of Object.entries(config.inputs || {})) {
           const previousDescriptor = previous?.inputs?.[inputId];
           const key = `${config.id}\0${inputId}`;
-          return previousDescriptor?.type === descriptor.type && storedValues.has(key)
-            && isValidInputValue(descriptor.type, storedValues.get(key));
-        });
+          const stored = storedValues.get(key);
+          if (previousDescriptor?.type === descriptor.type && isValidInputValue(descriptor.type, stored)) {
+            values[inputId] = stored;
+            retainedInputs.add(key);
+            continue;
+          }
+          let value;
+          try {
+            value = resolveInputDefault(descriptor, defaultsAt);
+          } catch (error) {
+            abort(new Error(`Input "${inputId}": ${error.message}`));
+            return;
+          }
+          if (value !== undefined) {
+            values[inputId] = value;
+            retainedInputs.add(key);
+            inputStore.put({ configId: config.id, inputId, value });
+          }
+        }
+        const inputsComplete = hasAllInputValues(config.inputs || {}, values);
         const enabled = Boolean(previous?.enabled) && previousInputsComplete && inputsComplete;
         configsStore.put({ ...config, enabled, displayOrder,
           rules: config.rules.map((rule) => {
@@ -332,14 +385,9 @@ export function replaceConfigsAfterSync(configs, meta) {
             return { ...rule, enabled: oldRule ? Boolean(oldRule.enabled) : true,
               ...(Array.isArray(rule.responses) && !rule.routes ? { selectedResponseId } : {}) };
           }) });
-      });
-      metaStore.put(meta);
-      const valid = new Set();
-      for (const config of configs) for (const [inputId, descriptor] of Object.entries(config.inputs || {})) {
-        const previous = old.get(config.id)?.inputs?.[inputId];
-        if (previous?.type === descriptor.type) valid.add(`${config.id}\0${inputId}`);
       }
-      for (const item of inputRows) if (!valid.has(`${item.configId}\0${item.inputId}`)) inputStore.delete([item.configId, item.inputId]);
+      metaStore.put(meta);
+      for (const item of inputRows) if (!retainedInputs.has(`${item.configId}\0${item.inputId}`)) inputStore.delete([item.configId, item.inputId]);
     };
     oldRequest.onsuccess = () => { oldConfigs = oldRequest.result; applyReplacement(); };
     storedInputs.onsuccess = () => { inputRows = storedInputs.result; applyReplacement(); };
