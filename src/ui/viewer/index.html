@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chrome Request Mocker — Response Viewer</title>
+  <link rel="stylesheet" href="../../../vendor/codemirror/lib/codemirror.css">
+  <link rel="stylesheet" href="../../../vendor/codemirror/addon/fold/foldgutter.css">
+  <link rel="stylesheet" href="../controls/method-indicator.css">
+  <link rel="stylesheet" href="../controls/rule-details.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="page-header">
+    <div class="heading-copy">
+      <h1>Response viewer</h1>
+      <p>Viewing the synced snapshot.</p>
+    </div>
+    <div class="sync-actions">
+      <p>Last sync: <strong id="last-sync"></strong></p>
+      <button id="reload" type="button">Reload snapshot</button>
+    </div>
+  </header>
+
+  <p id="status" role="status" hidden></p>
+
+  <main class="viewer-layout">
+    <aside id="rule-sidebar" class="sidebar" aria-label="Rule navigation">
+      <div class="search-field">
+        <label for="search">Search rules</label>
+        <input id="search" type="search" placeholder="Name, ID or URL pattern">
+      </div>
+      <nav id="navigation" aria-label="Configs and rules"></nav>
+    </aside>
+
+    <div id="sidebar-resize" role="separator" tabindex="0" aria-label="Resize rule navigation" aria-orientation="vertical" aria-controls="rule-sidebar" title="Drag to resize; use Left and Right arrow keys"></div>
+
+    <section class="response-panel" aria-label="Response contents">
+      <p id="empty-state">Loading snapshot…</p>
+      <div id="response-view" hidden>
+        <div class="response-details">
+          <div class="response-heading">
+            <h2 id="rule-title"></h2>
+            <p id="source"></p>
+          </div>
+          <div class="request-line">
+            <div id="rule-method-badges" role="group" aria-label="HTTP methods"></div>
+            <code id="rule-pattern"></code>
+            <p id="rule-info" hidden></p>
+          </div>
+          <div class="response-controls">
+            <div id="variant-field" hidden>
+              <label for="response-select">Response variant</label>
+              <select id="response-select"></select>
+            </div>
+            <dl class="response-meta">
+              <div>
+                <dt>Status</dt>
+                <dd id="response-status"></dd>
+              </div>
+              <div>
+                <dt>Delay</dt>
+                <dd id="response-delay"></dd>
+              </div>
+            </dl>
+            <button id="toggle-headers" type="button" aria-expanded="false" aria-controls="response-headers">Headers</button>
+          </div>
+          <pre id="response-headers" hidden></pre>
+          <div id="routing-details"></div>
+          <p id="routing-note" hidden>Automatic routing: choosing a variant here does not evaluate routes.</p>
+        </div>
+        <section class="body-section" aria-label="Response body">
+          <div class="body-toolbar">
+            <h3>Body</h3>
+            <div class="body-actions">
+              <button id="fold-all" type="button">Collapse all</button>
+              <button id="unfold-all" type="button">Expand all</button>
+              <button id="copy" type="button">Copy body</button>
+            </div>
+          </div>
+          <div id="editor" aria-label="JSON response body"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="../../../vendor/codemirror/lib/codemirror.js"></script>
+  <script src="../../../vendor/codemirror/mode/javascript/javascript.js"></script>
+  <script src="../../../vendor/codemirror/addon/fold/foldcode.js"></script>
+  <script src="../../../vendor/codemirror/addon/fold/brace-fold.js"></script>
+  <script src="../../../vendor/codemirror/addon/fold/foldgutter.js"></script>
+  <script type="module" src="index.js"></script>
+</body>
+</html>

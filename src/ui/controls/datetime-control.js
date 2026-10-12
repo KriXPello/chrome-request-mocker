@@ -1,4 +1,4 @@
-import { datetimeInputAsRaw, isValidDatetimeInput, isValidRelativeDatetimeInput, relativeDatetimeValue, formatDatetimeInput } from "./datetime.js";
+import { datetimeInputAsRaw, isValidDatetimeInput, isValidRelativeDatetimeInput, relativeDatetimeValue, formatDatetimeInput } from "../../config/datetime.js";
 
 export function createDatetimeControl(raw, savedValue, name) {
   const element = document.createElement("div");

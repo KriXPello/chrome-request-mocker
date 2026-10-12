@@ -1,67 +1,29 @@
-import { replaceConfigsAfterSync } from "./db.js";
-import { getPatternParams, normalizeInputs, normalizeQueryMap, validateTemplate } from "./inputs.js";
+import { normalizeInputs } from "./inputs.js";
+import { getPatternParams } from "./url-pattern.js";
+import { validateTemplate, VARIABLE_NAME_PATTERN } from "./templates.js";
 
-export async function syncConfigsFromDirectory(directoryHandle) {
-  const permission = await directoryHandle.queryPermission({ mode: "read" });
-  if (permission !== "granted") {
-    const requested = await directoryHandle.requestPermission({ mode: "read" });
-    if (requested !== "granted") {
-      throw new Error("Folder access was not granted.");
+function normalizeQueryMap(value, namespace, prefix) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${prefix}: queryMap must be an object`);
+  }
+  const result = Object.create(null);
+  const names = new Set();
+  for (const [parameter, id] of Object.entries(value)) {
+    if (!parameter.trim()) throw new Error(`${prefix}: queryMap parameter names must be non-empty`);
+    if (typeof id !== "string" || !VARIABLE_NAME_PATTERN.test(id)) {
+      throw new Error(`${prefix}: invalid queryMap variable name for "${parameter}"`);
     }
+    if (Object.hasOwn(namespace, id) || names.has(id)) {
+      throw new Error(`${prefix}: queryMap variable "${id}" conflicts with another variable`);
+    }
+    names.add(id);
+    result[parameter] = id;
   }
-
-  const configs = await readConfigs(directoryHandle);
-  const importedAt = Date.now();
-  const ruleCount = configs.reduce((sum, config) => sum + config.rules.length, 0);
-  for (const config of configs) {
-    config.importedAt = importedAt;
-  }
-  const meta = {
-    key: "sync",
-    lastSyncAt: importedAt,
-    folderName: directoryHandle.name,
-    configCount: configs.length,
-    ruleCount
-  };
-  await replaceConfigsAfterSync(configs, meta);
-  return { configs, meta };
+  return result;
 }
 
-async function readConfigs(directoryHandle) {
-  const files = [];
-  for await (const entry of directoryHandle.values()) {
-    if (entry.kind === "file" && entry.name.toLowerCase().endsWith(".json")) {
-      files.push(entry);
-    }
-  }
-  files.sort((a, b) => a.name.localeCompare(b.name));
-  const configs = [];
-  const configFiles = new Map();
-  for (const entry of files) {
-    const file = await entry.getFile();
-    let value;
-    try {
-      value = JSON.parse(await file.text());
-    } catch (error) {
-      throw new Error(`${entry.name}: ${messageOf(error)}`);
-    }
-    const config = validateConfig(value, entry.name);
-    if (configFiles.has(config.id)) {
-      throw new Error(`Duplicate config id "${config.id}":\n${configFiles.get(config.id)}\n${entry.name}`);
-    }
-    configFiles.set(config.id, entry.name);
-    configs.push({
-      ...config,
-      formatVersion: 3,
-      sourceFile: entry.name,
-      fileLastModified: file.lastModified,
-      importedAt: 0
-    });
-  }
-  return configs;
-}
-
-function validateConfig(value, filename) {
+export function normalizeConfig(value, filename) {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(filename, "top level must be an object");
   if (typeof value.id !== "string" || !value.id.trim()) fail(filename, "id must be a non-empty string");
   if ("name" in value && typeof value.name !== "string") fail(filename, "name must be a string");
@@ -253,5 +215,3 @@ function isValidHttpText(value) {
     return code === 9 || (code >= 32 && code <= 126) || (code >= 128 && code <= 255);
   });
 }
-
-function messageOf(error) { return error instanceof Error ? error.message : String(error); }

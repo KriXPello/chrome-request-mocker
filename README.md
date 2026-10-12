@@ -240,3 +240,4 @@ The extension icon badge shows the number of enabled, complete configs currently
 - [Configuration reference](docs/configuration.md)
 - [Breaking changes history](docs/breaking-changes.md)
 - [Limitations and troubleshooting](docs/limitations.md)
+- [Project structure](docs/project-structure.md)

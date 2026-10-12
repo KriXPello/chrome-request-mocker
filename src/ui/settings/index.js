@@ -1,5 +1,6 @@
-import { getDirectoryHandle, saveDirectoryHandle, getConfigsAndSyncMeta, getLoggingMode, setLoggingMode } from "./db.js";
-import { syncConfigsFromDirectory } from "./config-sync.js";
+import { getDirectoryHandle, saveDirectoryHandle, getConfigsAndSyncMeta, getLoggingMode, setLoggingMode } from "../../storage/db.js";
+import { syncConfigsFromDirectory } from "../../sync/sync-from-directory.js";
+import { notifyRuntimeConfig } from "../runtime-config.js";
 
 const folderLabel = document.querySelector("#folder");
 const lastSyncLabel = document.querySelector("#last-sync");
@@ -105,14 +106,6 @@ async function performSync() {
     setStatus("Synced successfully.", "ok");
   } catch (error) {
     setStatus(`Sync failed.\n${messageOf(error)}`, "error");
-  }
-}
-
-async function notifyRuntimeConfig() {
-  try {
-    await chrome.runtime.sendMessage({ type: "RUNTIME_CONFIG_UPDATED" });
-  } catch (error) {
-    console.warn("Runtime config notification failed after saving.", error);
   }
 }
 

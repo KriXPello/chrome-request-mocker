@@ -1,19 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Chrome Request Mocker",
-  "version": "2.1.0",
-  "description": "Sync local JSON mock configurations and intercept fetch/XHR responses directly in Chrome.",
+  "version": "2.2.0",
+  "description": "Intercept fetch/XHR requests and replace responses in Chrome. Configuration via local JSON files.",
   "minimum_chrome_version": "122",
   "host_permissions": [
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "src/background/index.js",
     "type": "module"
   },
   "action": {
     "default_title": "Chrome Request Mocker",
-    "default_popup": "popup.html",
+    "default_popup": "src/ui/popup/index.html",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -28,13 +28,13 @@
     "128": "icons/icon-128.png"
   },
   "options_ui": {
-    "page": "settings.html",
+    "page": "src/ui/settings/index.html",
     "open_in_tab": true
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["interceptor-main.js"],
+      "js": ["src/content/interceptor-main.js"],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": true,
@@ -42,7 +42,7 @@
     },
     {
       "matches": ["<all_urls>"],
-      "js": ["bridge.js"],
+      "js": ["src/content/bridge.js"],
       "run_at": "document_start",
       "world": "ISOLATED",
       "all_frames": true,

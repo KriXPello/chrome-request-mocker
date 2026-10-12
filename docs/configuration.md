@@ -222,6 +222,18 @@ Other condition-pattern backslash escapes are invalid and reject sync.
 
 ## Response
 
+### Viewing responses
+
+Click the small **View response** icon to the right of a rule in the popup to open the extension's response viewer. The left panel groups rules by config and supports search by name, ID or URL pattern. Disabled configs and rules remain available for viewing.
+
+For automatically routed rules, expand **Automatic** in the popup to browse response variants. Clicking a variant opens it in the viewer without changing the active mock. The detailed routing table is available on the viewer page, where clicking a response name selects that variant locally.
+
+The viewer displays the last successfully synced snapshot, with formatted JSON, syntax highlighting, collapsible objects/arrays and body copying. It also shows status, headers and effective delay. Select any response variant, including variants used by automatic routes, without changing the active mock.
+
+Template placeholders are shown unchanged; this is not a preview of a real request, and routes are not evaluated. Imported defaults such as status and headers are included, so this is not the original JSON file text. **Reload snapshot** rereads saved data; use Sync in the popup to import file changes first.
+
+### Response fields
+
 These fields apply to both a single `response` and every item in `responses`:
 
 | Field | Meaning |

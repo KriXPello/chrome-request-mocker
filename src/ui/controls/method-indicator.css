@@ -1,0 +1,30 @@
+.rule-methods {
+  display: flex;
+  flex-direction: column;
+  cursor: help;
+}
+
+.rule-method-segment, .method-badge { --method-color: #89939e; }
+
+.rule-method-segment {
+  flex: 1;
+  border-radius: 1px;
+  background: var(--method-color);
+}
+
+.rule-method-segment[data-method="GET"], .method-badge[data-method="GET"] { --method-color: #2b9c5b; }
+.rule-method-segment[data-method="POST"], .method-badge[data-method="POST"] { --method-color: #e57e25; }
+.rule-method-segment[data-method="PUT"], .method-badge[data-method="PUT"] { --method-color: #3b82f6; }
+.rule-method-segment[data-method="PATCH"], .method-badge[data-method="PATCH"] { --method-color: #e9b949; }
+.rule-method-segment[data-method="DELETE"], .method-badge[data-method="DELETE"] { --method-color: #e05252; }
+
+.method-badge {
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--method-color) 28%, Canvas);
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--method-color) 70%, CanvasText);
+  background: color-mix(in srgb, var(--method-color) 12%, Canvas);
+  font-size: .75rem;
+  font-weight: 600;
+  line-height: 1.4;
+}

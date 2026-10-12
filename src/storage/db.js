@@ -1,5 +1,5 @@
-import { isValidInputValue, resolveInputDefault } from "./inputs.js";
-import { relativeDatetimeValue } from "./datetime.js";
+import { isValidInputValue, resolveInputDefault } from "../config/inputs.js";
+import { relativeDatetimeValue } from "../config/datetime.js";
 
 const DB_NAME = "local-mock";
 const DB_VERSION = 3;
