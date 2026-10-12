@@ -75,25 +75,28 @@ export function clearDirectoryHandle() {
     tx.objectStore("handles").delete(DIRECTORY_KEY)));
 }
 
-export function getLoggingMode() {
+export function getLoggingSettings() {
   return withDb((db) => new Promise((resolve, reject) => {
     const request = db.transaction("meta", "readonly").objectStore("meta").get("logging");
     request.onsuccess = () => {
-      const mode = request.result?.mode;
-      if (LOGGING_MODES.includes(mode)) {
-        resolve(mode);
+      const saved = request.result;
+      if (saved?.mode === "detailed-response") {
+        resolve({ mode: "detailed", includeResponse: true });
         return;
       }
-      resolve("short");
+      let mode = "short";
+      if (LOGGING_MODES.includes(saved?.mode)) mode = saved.mode;
+      resolve({ mode, includeResponse: saved?.includeResponse === true });
     };
     request.onerror = () => reject(request.error);
   }));
 }
 
-export function setLoggingMode(mode) {
+export function setLoggingSettings({ mode, includeResponse }) {
   if (!LOGGING_MODES.includes(mode)) throw new Error("Invalid request logging mode.");
+  if (typeof includeResponse !== "boolean") throw new Error("Invalid response logging setting.");
   return withDb((db) => transaction(db, ["meta"], "readwrite", (tx) =>
-    tx.objectStore("meta").put({ key: "logging", mode })));
+    tx.objectStore("meta").put({ key: "logging", mode, includeResponse })));
 }
 
 export function getAllConfigs() {

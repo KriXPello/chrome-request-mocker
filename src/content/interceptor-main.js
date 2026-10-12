@@ -17,6 +17,7 @@
   let configLoaded = false;
   let preparedConfig = null;
   let latestBridgeRevision = -1;
+  let nextRequestId = 0;
   let resolveConfig;
 
   const configReady = new Promise((resolve) => {
@@ -81,9 +82,9 @@
   }
 
   function prepareConfig(config) {
-    const loggingMode = config?.loggingMode ?? "short";
+    const logging = config?.logging ?? { mode: "short", includeResponse: false };
     if (!config || !Array.isArray(config.rules)) {
-      return { rules: [], loggingMode };
+      return { rules: [], logging };
     }
 
     const rules = [];
@@ -98,7 +99,7 @@
       }
     }
 
-    return { rules, loggingMode };
+    return { rules, logging };
   }
 
   function globToRegExp(glob) {
@@ -333,9 +334,16 @@
     };
   }
 
-  function logMockRequest(transport, method, url, rule, outcome) {
-    const loggingMode = preparedConfig.loggingMode;
-    if (loggingMode === "off") return;
+  function beginMockRequest(transport, method, url, rule) {
+    const request = { id: ++nextRequestId, transport, method, url, rule };
+    logMockRequest(request, "request");
+    return request;
+  }
+
+  function logMockRequest(request, outcome, bodyText) {
+    const logging = preparedConfig.logging;
+    if (logging.mode === "off") return;
+    const { id, transport, method, url, rule } = request;
     let path = url;
     let parsedUrl;
     try {
@@ -346,15 +354,46 @@
     }
     const response = rule.response;
     const responseName = response.name ?? response.id;
-    let result = outcome;
-    if (outcome === "response") {
-      result = `[${response.status}]`;
+    let eventName;
+    let result = "";
+    switch (outcome) {
+      case "request":
+        eventName = "Request";
+        break;
+      case "response":
+        eventName = "Response";
+        result = ` → [${response.status}]`;
+        if (responseName) result += `: ${JSON.stringify(responseName)}`;
+        break;
+      case "abort":
+        eventName = "Abort";
+        break;
+      case "timeout":
+        eventName = "Timeout";
+        break;
     }
-    if (responseName) result += `: ${JSON.stringify(responseName)}`;
     const delayMs = Math.round(rule.delay);
-    const summary = `[Mock] ${transport} ${method} ${path} → ${result} · delay ${delayMs} ms`;
-    if (loggingMode === "short") {
-      console.debug(summary);
+    const summary = `[Mock #${id}] ${eventName} ${transport} ${method} ${path}${result} · delay ${delayMs} ms`;
+    let loggedResponse;
+    if (logging.includeResponse && outcome === "response") {
+      let body = null;
+      if (bodyText !== undefined && bodyText !== "") {
+        // Parse the delivered text to keep the log independent of the application's response object.
+        body = JSON.parse(bodyText);
+      }
+      loggedResponse = {
+        status: response.status,
+        statusText: response.statusText,
+        headers: { ...response.headers },
+        body
+      };
+    }
+    if (logging.mode === "short") {
+      if (loggedResponse) {
+        console.debug(summary, loggedResponse);
+      } else {
+        console.debug(summary);
+      }
       return;
     }
     let query = {};
@@ -371,14 +410,18 @@
       min = rule.configuredDelay.min;
       max = rule.configuredDelay.max;
     }
-    console.debug(summary, {
+    const details = {
+      requestId: id,
+      event: outcome,
       transport,
       request: { method, url, query },
       configId: rule.configId ?? null,
       ruleId: rule.ruleId ?? rule.id ?? null,
       responseId: response.id ?? null,
       delay: { resolved: delayMs, min, max }
-    });
+    };
+    if (loggedResponse) details.response = loggedResponse;
+    console.debug(summary, details);
   }
 
   patchFetch();
@@ -397,11 +440,12 @@
         return nativeFetch.apply(this, arguments);
       }
 
+      const request = beginMockRequest("fetch", method, url, rule);
       const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
       try {
         await sleep(rule.delay, signal);
       } catch (error) {
-        if (error.name === "AbortError") logMockRequest("fetch", method, url, rule, "abort");
+        if (error.name === "AbortError") logMockRequest(request, "abort");
         throw error;
       }
 
@@ -424,7 +468,7 @@
         // Non-essential; a constructed Response normally has an empty URL.
       }
 
-      logMockRequest("fetch", method, url, rule, "response");
+      logMockRequest(request, "response", body);
       return response;
     };
   }
@@ -480,7 +524,7 @@
         timer: null,
         timeoutTimer: null,
         state: null,
-        rule: null,
+        request: null,
         outcome: null
       });
 
@@ -510,7 +554,7 @@
         }
 
         meta.mocked = true;
-        meta.rule = rule;
+        meta.request = beginMockRequest("XHR", meta.method, meta.url, rule);
         const end = performance.now() + rule.delay;
         while (performance.now() < end) {
           // Synchronous XHR blocks the main thread too; preserve that behavior for configured delay.
@@ -566,7 +610,7 @@
 
     function beginMockXhr(xhr, meta, rule) {
       meta.mocked = true;
-      meta.rule = rule;
+      meta.request = beginMockRequest("XHR", meta.method, meta.url, rule);
       meta.state = makeMockState(xhr, meta.url, responseForRule(rule), meta.method);
       installMockProperties(xhr, meta.state);
 
@@ -615,7 +659,7 @@
       xhr.dispatchEvent(new Event("readystatechange"));
 
       meta.state.readyState = 4;
-      logMockXhr(meta, "response");
+      logMockXhr(meta, "response", meta.state.text);
       xhr.dispatchEvent(new Event("readystatechange"));
 
       const byteLength = new TextEncoder().encode(meta.state.text).byteLength;
@@ -630,10 +674,10 @@
       xhr.dispatchEvent(new Event("loadend"));
     }
 
-    function logMockXhr(meta, outcome) {
+    function logMockXhr(meta, outcome, bodyText) {
       if (meta.outcome) return;
       meta.outcome = outcome;
-      logMockRequest("XHR", meta.method, meta.url, meta.rule, outcome);
+      logMockRequest(meta.request, outcome, bodyText);
     }
 
     function makeMockState(xhr, url, responseConfig, method) {

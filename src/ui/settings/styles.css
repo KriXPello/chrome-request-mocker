@@ -46,14 +46,35 @@ select {
 
 .setting-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+  margin-top: 12px;
+}
+
+.setting-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .setting-note {
   font-size: 13px;
   opacity: 0.8;
   margin-bottom: 0;
+}
+
+.setting-notice {
+  margin: 12px 0 0;
+  padding: 7px 10px;
+  border-left: 3px solid #2563eb;
+  background: color-mix(in srgb, CanvasText 4%, Canvas);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+.setting-notice strong {
+  display: block;
 }
 
 #status {

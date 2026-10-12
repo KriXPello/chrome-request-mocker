@@ -1,10 +1,10 @@
-import { getConfigsAndSyncMeta, getConfigInputs, getLoggingMode } from "../storage/db.js";
+import { getConfigsAndSyncMeta, getConfigInputs, getLoggingSettings } from "../storage/db.js";
 import { inputsReady } from "../config/inputs.js";
 import { resolveRuntimeRule } from "../config/runtime-rule.js";
 
 export async function loadRuntimeConfig() {
   try {
-    const [{ configs, meta }, loggingMode] = await Promise.all([getConfigsAndSyncMeta(), getLoggingMode()]);
+    const [{ configs, meta }, logging] = await Promise.all([getConfigsAndSyncMeta(), getLoggingSettings()]);
     const candidates = configs.filter((config) => config.enabled && config.formatVersion === 3).sort((a, b) =>
       a.sourceFile.localeCompare(b.sourceFile));
     const active = [];
@@ -32,7 +32,7 @@ export async function loadRuntimeConfig() {
         }
       }
     }
-    return { ok: true, config: { rules, loggingMode }, activeConfigCount: active.length,
+    return { ok: true, config: { rules, logging }, activeConfigCount: active.length,
       activeRuleCount: rules.length, lastSyncAt: meta?.lastSyncAt ?? null };
   } catch (error) {
     return { ok: false, code: "database-error", error: error instanceof Error ? error.message : String(error) };

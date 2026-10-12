@@ -238,6 +238,7 @@ The extension icon badge shows the number of enabled, complete configs currently
 ## Documentation
 
 - [Configuration reference](docs/configuration.md)
+- [Request logging](docs/logging.md)
 - [Breaking changes history](docs/breaking-changes.md)
 - [Limitations and troubleshooting](docs/limitations.md)
 - [Project structure](docs/project-structure.md)

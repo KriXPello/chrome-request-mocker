@@ -1,4 +1,4 @@
-import { getDirectoryHandle, saveDirectoryHandle, getConfigsAndSyncMeta, getLoggingMode, setLoggingMode } from "../../storage/db.js";
+import { getDirectoryHandle, saveDirectoryHandle, getConfigsAndSyncMeta, getLoggingSettings, setLoggingSettings } from "../../storage/db.js";
 import { syncConfigsFromDirectory } from "../../sync/sync-from-directory.js";
 import { notifyRuntimeConfig } from "../runtime-config.js";
 
@@ -9,21 +9,24 @@ const statusLabel = document.querySelector("#status");
 const chooseButton = document.querySelector("#choose");
 const syncButton = document.querySelector("#sync");
 const loggingSelect = document.querySelector("#logging-mode");
+const loggingResponseCheckbox = document.querySelector("#logging-response");
 let directoryHandle = null;
 let syncInProgress = false;
-let loggingMode;
+let loggingSettings;
 let loggingSaveInProgress = false;
 
 chooseButton.addEventListener("click", chooseFolder);
 syncButton.addEventListener("click", syncFromFolder);
-loggingSelect.addEventListener("change", changeLoggingMode);
+loggingSelect.addEventListener("change", changeLoggingSettings);
+loggingResponseCheckbox.addEventListener("change", changeLoggingSettings);
 setButtonState();
 await initialize();
 
 async function initialize() {
   try {
-    [directoryHandle, loggingMode] = await Promise.all([getDirectoryHandle(), getLoggingMode()]);
-    loggingSelect.value = loggingMode;
+    [directoryHandle, loggingSettings] = await Promise.all([getDirectoryHandle(), getLoggingSettings()]);
+    loggingSelect.value = loggingSettings.mode;
+    loggingResponseCheckbox.checked = loggingSettings.includeResponse;
     renderFolder();
     await renderMeta();
     if (directoryHandle) setStatus("Folder access is required only to sync configs.", "");
@@ -60,18 +63,19 @@ async function chooseFolder() {
   }
 }
 
-async function changeLoggingMode() {
-  if (loggingSaveInProgress || loggingMode === undefined) return;
-  const mode = loggingSelect.value;
+async function changeLoggingSettings() {
+  if (loggingSaveInProgress || loggingSettings === undefined) return;
+  const settings = { mode: loggingSelect.value, includeResponse: loggingResponseCheckbox.checked };
   loggingSaveInProgress = true;
   setButtonState();
   try {
-    await setLoggingMode(mode);
-    loggingMode = mode;
+    await setLoggingSettings(settings);
+    loggingSettings = settings;
     await notifyRuntimeConfig();
     setStatus("Request logging updated.", "ok");
   } catch (error) {
-    loggingSelect.value = loggingMode;
+    loggingSelect.value = loggingSettings.mode;
+    loggingResponseCheckbox.checked = loggingSettings.includeResponse;
     setStatus(messageOf(error), "error");
   } finally {
     loggingSaveInProgress = false;
@@ -127,7 +131,8 @@ function renderFolder() {
 function setButtonState() {
   chooseButton.disabled = syncInProgress;
   syncButton.disabled = syncInProgress || !directoryHandle;
-  loggingSelect.disabled = loggingSaveInProgress || loggingMode === undefined;
+  loggingSelect.disabled = loggingSaveInProgress || loggingSettings === undefined;
+  loggingResponseCheckbox.disabled = loggingSelect.disabled || loggingSettings.mode === "off";
 }
 
 function setStatus(text, kind) {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chrome Request Mocker",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Intercept fetch/XHR requests and replace responses in Chrome. Configuration via local JSON files.",
   "minimum_chrome_version": "122",
   "host_permissions": [

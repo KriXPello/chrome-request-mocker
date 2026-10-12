@@ -23,6 +23,7 @@
     </section>
     <section>
       <h2>Request logging</h2>
+      <p class="setting-note">Logs appear in the page's DevTools console. Enable the <strong>Verbose</strong> level to see them.</p>
       <div class="setting-row">
         <label for="logging-mode">Mode</label>
         <select id="logging-mode" disabled>
@@ -30,8 +31,14 @@
           <option value="short" selected>Short</option>
           <option value="detailed">Detailed</option>
         </select>
+        <label class="setting-checkbox">
+          <input id="logging-response" type="checkbox" aria-describedby="logging-description logging-notice" disabled>
+          Include response
+        </label>
       </div>
-      <p class="setting-note">Saved automatically. Changes apply to open pages. Configuration diagnostics remain enabled.</p>
+      <p id="logging-description" class="setting-note"><strong>Short</strong> logs interception and completion with a shared request number; <strong>Detailed</strong> adds request and rule details. <strong>Include response</strong> adds the resolved status, headers and body when a response is delivered.</p>
+      <p class="setting-note">Settings save automatically and apply to open pages without reloading. Configuration diagnostics remain enabled, even with logging off.</p>
+      <p id="logging-notice" class="setting-notice"><strong>Request history is not saved by the extension.</strong> Requests and responses are only logged to the browser console. Response headers and bodies may contain sensitive data.</p>
     </section>
     <p id="status" role="status"></p>
   </main>
