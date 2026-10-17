@@ -5,3 +5,8 @@ export async function notifyRuntimeConfig() {
     console.warn("Runtime config notification failed after saving.", error);
   }
 }
+
+export async function notifySiteAccess() {
+  const result = await chrome.runtime.sendMessage({ type: "SITE_ACCESS_UPDATED" });
+  if (!result?.ok) throw new Error(result?.error || "Could not update site access.");
+}

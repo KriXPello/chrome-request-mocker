@@ -49,6 +49,44 @@ button {
     font: inherit;
 }
 
+.current-site-access {
+    margin-top: 10px;
+    padding: 7px 10px;
+    border: 1px solid #8883;
+    border-radius: 6px;
+    background: color-mix(in srgb, CanvasText 4%, Canvas);
+    font-size: 12px;
+}
+
+.current-site-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.current-site-summary {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+
+.current-site-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.current-site-status { color: GrayText; }
+.current-site-row button { flex: none; }
+.current-site-note { margin: 6px 0 0; }
+.current-site-note.error { color: #a12622; }
+
+@media (prefers-color-scheme: dark) {
+    .current-site-note.error { color: #ffaaa5; }
+}
+
 .sync-status {
     margin-top: 10px;
     padding: 8px 10px;

@@ -1,6 +1,7 @@
 import { getDirectoryHandle, saveDirectoryHandle, getConfigsAndSyncMeta, getLoggingSettings, setLoggingSettings } from "../../storage/db.js";
 import { syncConfigsFromDirectory } from "../../sync/sync-from-directory.js";
 import { notifyRuntimeConfig } from "../runtime-config.js";
+import { initializeSiteAccess } from "./site-access.js";
 
 const folderLabel = document.querySelector("#folder");
 const lastSyncLabel = document.querySelector("#last-sync");
@@ -19,6 +20,7 @@ chooseButton.addEventListener("click", chooseFolder);
 syncButton.addEventListener("click", syncFromFolder);
 loggingSelect.addEventListener("change", changeLoggingSettings);
 loggingResponseCheckbox.addEventListener("change", changeLoggingSettings);
+initializeSiteAccess(setStatus);
 setButtonState();
 await initialize();
 

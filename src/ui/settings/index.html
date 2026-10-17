@@ -1,47 +1,111 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chrome Request Mocker Settings</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <main>
-    <h1>Chrome Request Mocker Settings</h1>
-    <section>
-      <h2>Config folder</h2>
-      <div id="folder">No folder selected</div>
-      <div class="actions">
-        <button id="choose" type="button">Choose folder</button>
-        <button id="sync" type="button">Sync from folder</button>
-      </div>
-    </section>
-    <section>
-      <div>Last successful sync: <strong id="last-sync">Never</strong></div>
-      <div id="counts">0 configs / 0 rules</div>
-    </section>
-    <section>
-      <h2>Request logging</h2>
-      <p class="setting-note">Logs appear in the page's DevTools console. Enable the <strong>Verbose</strong> level to see them.</p>
-      <div class="setting-row">
-        <label for="logging-mode">Mode</label>
-        <select id="logging-mode" disabled>
-          <option value="off">Off</option>
-          <option value="short" selected>Short</option>
-          <option value="detailed">Detailed</option>
-        </select>
-        <label class="setting-checkbox">
-          <input id="logging-response" type="checkbox" aria-describedby="logging-description logging-notice" disabled>
-          Include response
-        </label>
-      </div>
-      <p id="logging-description" class="setting-note"><strong>Short</strong> logs interception and completion with a shared request number; <strong>Detailed</strong> adds request and rule details. <strong>Include response</strong> adds the resolved status, headers and body when a response is delivered.</p>
-      <p class="setting-note">Settings save automatically and apply to open pages without reloading. Configuration diagnostics remain enabled, even with logging off.</p>
-      <p id="logging-notice" class="setting-notice"><strong>Request history is not saved by the extension.</strong> Requests and responses are only logged to the browser console. Response headers and bodies may contain sensitive data.</p>
-    </section>
-    <p id="status" role="status"></p>
-  </main>
-  <script type="module" src="index.js"></script>
-</body>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Chrome Request Mocker Settings</title>
+        <link rel="stylesheet" href="styles.css" />
+    </head>
+    <body>
+        <main>
+            <h1>Chrome Request Mocker Settings</h1>
+            <section>
+                <h2>Site access</h2>
+                <p class="setting-note">
+                    Chrome permissions control where the extension can run. No
+                    sites are granted access automatically on a new
+                    installation.
+                </p>
+                <form id="site-access-form" class="site-access-form">
+                    <label for="site-access-input">Site</label>
+                    <input
+                        id="site-access-input"
+                        type="text"
+                        placeholder="https://site.test.com"
+                        required
+                        autocomplete="off"
+                        spellcheck="false"
+                        aria-describedby="site-access-help"
+                    />
+                    <button id="site-access-add" type="submit">
+                        Grant access
+                    </button>
+                </form>
+                <p id="site-access-help" class="setting-note">
+                    Enter an HTTP or HTTPS site. Use https://*.example.com to
+                    include subdomains. Access applies to all paths on the site.
+                </p>
+                <ul id="site-access-list" class="site-access-list"></ul>
+                <p id="site-access-empty" class="setting-note" hidden>
+                    No site access granted. Requests are not intercepted.
+                </p>
+                <p class="setting-notice">
+                    <strong>Reload a site after granting access.</strong>
+                    Removing access stops future injections. Reload open pages
+                    to completely remove code that was already injected.
+                </p>
+            </section>
+            <section>
+                <h2>Config folder</h2>
+                <div id="folder">No folder selected</div>
+                <div class="actions">
+                    <button id="choose" type="button">Choose folder</button>
+                    <button id="sync" type="button">Sync from folder</button>
+                </div>
+            </section>
+            <section>
+                <div>
+                    Last successful sync: <strong id="last-sync">Never</strong>
+                </div>
+                <div id="counts">0 configs / 0 rules</div>
+            </section>
+            <section>
+                <h2>Request logging</h2>
+                <p class="setting-note">
+                    Logs appear in the page's DevTools console. Enable the
+                    <strong>Verbose</strong> level to see them.
+                </p>
+                <div class="setting-row">
+                    <label for="logging-mode">Mode</label>
+                    <select id="logging-mode" disabled>
+                        <option value="off">Off</option>
+                        <option value="short" selected>Short</option>
+                        <option value="detailed">Detailed</option>
+                    </select>
+                    <label class="setting-checkbox">
+                        <input
+                            id="logging-response"
+                            type="checkbox"
+                            aria-describedby="logging-description logging-notice"
+                            disabled
+                        />
+                        Include response
+                    </label>
+                </div>
+                <p id="logging-description" class="setting-note">
+                    <strong>Short</strong> logs interception and completion with
+                    a shared request number; <strong>Detailed</strong> adds
+                    request and rule details.
+                    <strong>Include response</strong> shows the planned
+                    response's resolved status, headers and body immediately at
+                    interception.
+                </p>
+                <p class="setting-note">
+                    Settings save automatically and apply to open pages without
+                    reloading. Configuration diagnostics remain enabled, even
+                    with logging off.
+                </p>
+                <p id="logging-notice" class="setting-notice">
+                    <strong
+                        >Request history is not saved by the extension.</strong
+                    >
+                    Requests and responses are only logged to the browser
+                    console. Response headers and bodies may contain sensitive
+                    data.
+                </p>
+            </section>
+            <p id="status" role="status"></p>
+        </main>
+        <script type="module" src="index.js"></script>
+    </body>
 </html>

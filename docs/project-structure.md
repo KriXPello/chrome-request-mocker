@@ -4,9 +4,11 @@ The extension uses native JavaScript modules without a build step. Load the repo
 
 ```text
 src/
+  site-access.js            Chrome permission lookup and site pattern normalization
   background/
     index.js                Service worker messaging, badge and runtime updates
     runtime-config.js       Assembly of enabled rules with saved inputs
+    site-access.js          Dynamic content-script registration for granted sites
   content/
     bridge.js               Isolated-world bridge to page scripts
     interceptor-main.js     Main-world fetch/XHR interception and request matching
@@ -32,10 +34,12 @@ src/
       input-editor.js       Input editor rendering and value collection
       input-drafts.js       Local input drafts and raw value conversion
       format-date.js        Sync and source modification date display
+      site-access.js        Current-site permission status, grant action and tab reload
     settings/
       index.html
       styles.css
       index.js              Folder selection, synchronization and logging settings
+      site-access.js        Site permission requests, removal and granted-site display
     viewer/
       index.html
       styles.css
@@ -56,7 +60,7 @@ src/
 1. `sync/` reads the selected folder and passes each JSON config to `config/normalize-config.js`.
 2. `storage/db.js` replaces the imported snapshot in one transaction, preserving compatible input values, enabled states, response selections and display order.
 3. `background/runtime-config.js` loads enabled configs and saved inputs, then prepares runtime rules through `config/runtime-rule.js`.
-4. The service worker sends the runtime snapshot to `content/bridge.js`, which publishes it to the page's main world.
+4. The service worker registers both content scripts for Chrome's granted sites. Each `content/bridge.js` requests the runtime snapshot separately; the service worker checks the frame's site permission before returning data. Broadcasts carry only invalidation notifications.
 5. `content/interceptor-main.js` matches requests, substitutes path/query variables, selects routed responses and returns mocks through fetch/XHR.
 
 ## Boundaries
@@ -65,7 +69,7 @@ Config processing is independent of the UI. The popup entry module owns interact
 
 The database module keeps snapshot replacement and preservation of local state together because they must be atomic. Moving files does not change the IndexedDB name, schema version, config format or local storage keys.
 
-The content scripts remain standalone classic scripts, as declared in the manifest. They do not import the extension's JavaScript modules. The bridge runs in the isolated world; the interceptor runs in the page's main world.
+The content scripts remain standalone classic scripts, registered dynamically through `chrome.scripting`. They do not import the extension's JavaScript modules. The bridge runs in the isolated world; the interceptor runs in the page's main world. Chrome permissions are the source of truth for site access; no separate allowlist is persisted.
 
 The response viewer reads the last synced snapshot from IndexedDB. Its rule and response selection lives in the page URL, not in the database; browsing variants never changes the response used for interception. Bodies and headers retain template placeholders. Reloading the snapshot reads saved data again but does not synchronize the config folder.
 

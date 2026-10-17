@@ -1,4 +1,6 @@
 import { loadRuntimeConfig } from "./runtime-config.js";
+import { syncSiteScripts } from "./site-access.js";
+import { hasSiteAccess } from "../site-access.js";
 
 let runtimeRevision = 0;
 let updateQueue = Promise.resolve();
@@ -7,23 +9,59 @@ refreshActionBadge().catch((error) => {
   console.warn("Could not update the Chrome Request Mocker badge.", error);
 });
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.permissions.onAdded.addListener(updateSiteAccess);
+chrome.permissions.onRemoved.addListener(updateSiteAccess);
+updateSiteAccess();
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  let result;
   if (message?.type === "GET_RUNTIME_CONFIG") {
-    return refreshActionBadge().then((payload) => ({ ...payload, revision: runtimeRevision }));
+    result = getRuntimeConfig(sender);
+  } else if (message?.type === "RUNTIME_CONFIG_UPDATED") {
+    result = queueUpdate(broadcastRuntimeConfig);
+  } else if (message?.type === "SITE_ACCESS_UPDATED") {
+    result = queueUpdate(synchronizeSiteAccess);
+  } else {
+    return undefined;
   }
-
-  if (message?.type === "RUNTIME_CONFIG_UPDATED") {
-    updateQueue = updateQueue.then(broadcastRuntimeConfig, broadcastRuntimeConfig);
-    return updateQueue;
-  }
-
-  return undefined;
+  result.then(sendResponse, (error) => sendResponse({ ok: false, error: error.message }));
+  return true;
 });
+
+function queueUpdate(update) {
+  updateQueue = updateQueue.then(update, update);
+  return updateQueue;
+}
+
+function updateSiteAccess() {
+  queueUpdate(synchronizeSiteAccess).catch((error) => {
+    console.warn("Could not update site access.", error);
+  });
+}
+
+async function synchronizeSiteAccess() {
+  try {
+    await syncSiteScripts();
+  } finally {
+    await broadcastRuntimeConfig();
+  }
+  return { ok: true };
+}
+
+async function getRuntimeConfig(sender) {
+  const denied = { ok: true, config: { rules: [], logging: { mode: "off", includeResponse: false } } };
+  if (!await hasSiteAccess(sender)) return denied;
+  const payload = await loadRuntimeConfig();
+  // Access can be revoked while the saved configuration is being loaded.
+  if (!await hasSiteAccess(sender)) return denied;
+  return payload;
+}
 
 function broadcastRuntimeConfig() {
   runtimeRevision += 1;
-  return refreshActionBadge().then(async (payload) => {
-    const message = { type: "RUNTIME_CONFIG_UPDATE", payload, revision: runtimeRevision };
+  return refreshActionBadge().then(async () => {
+    // Each frame requests its own snapshot so unauthorized frames never receive config data.
+    const message = { type: "RUNTIME_CONFIG_UPDATE", revision: runtimeRevision };
     let tabs = [];
     try {
       tabs = await chrome.tabs.query({});

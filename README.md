@@ -18,8 +18,9 @@ Configs stay on your device, so you can edit them in your IDE, keep them in Git,
 4. Click **Load unpacked** and select the extension directory.
 5. Open the extension settings and select a folder with your mock configs.
 6. Click **Sync from folder**.
-7. Enable the configs and rules you need in the popup.
-8. Changes apply to open pages after sync; no reload is required.
+7. Open the popup on your site and click **Grant access**, or manage sites in Settings → **Site access**.
+8. Enable the configs and rules you need in the popup, then reload those sites.
+9. Subsequent config changes apply to permitted open pages after sync; no reload is required.
 
 ## Features
 
@@ -238,6 +239,7 @@ The extension icon badge shows the number of enabled, complete configs currently
 ## Documentation
 
 - [Configuration reference](docs/configuration.md)
+- [Site access and permissions](docs/site-access.md)
 - [Request logging](docs/logging.md)
 - [Breaking changes history](docs/breaking-changes.md)
 - [Limitations and troubleshooting](docs/limitations.md)

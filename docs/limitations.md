@@ -6,6 +6,7 @@ Changes are sent to open pages immediately:
 
 - Config, rule, selected response, input, and synced-file changes affect subsequent requests. Requests in progress keep their original configuration.
 - Logging mode changes also apply to requests in progress.
+- Granting site access requires reloading the site so interception can begin at document start. Removing access updates future injections and clears mock rules from notified open frames; reload them to completely remove the injected code. Already intercepted requests retain their selected responses. See [site access](site-access.md).
 
 The badge on the extension icon shows the number of enabled configs whose required inputs are complete. It counts configs rather than individual rules; an enabled config is counted even when all of its rules are disabled.
 
@@ -24,6 +25,7 @@ It does not intercept:
 - WebSocket or EventSource connections
 - requests made inside Service Workers
 - pages where Chrome does not allow extensions to run, such as `chrome://` pages
+- sites without Chrome host permission for the extension
 
 Requests without a matching rule are sent normally.
 
@@ -39,7 +41,7 @@ If any config file is invalid, the sync fails and the previous working snapshot 
 
 ## Runtime data visibility
 
-Config files and input values are stored locally in the browser profile and are not uploaded by the extension. However, enabled and complete configs are resolved and delivered to pages where the extension runs so that page-context code can intercept requests. At present, every eligible page receives the active runtime configuration, even when none of its URLs match a rule. Page scripts can observe that configuration, including input values used in patterns, query conditions, response bodies, or response headers.
+Config files and input values are stored locally in the browser profile and are not uploaded by the extension. Enabled and complete configs are resolved and delivered only to frames with Chrome site permission for the extension. Every permitted frame receives the active runtime configuration, even when none of its request URLs match a rule. Its scripts can observe that configuration, including input values used in patterns, query conditions, response bodies, or response headers. See [site access and permissions](site-access.md).
 
 Treat `masked` as a display convenience, not a security boundary. Do not store credentials that must remain secret from the pages open in this browser profile.
 
@@ -48,6 +50,7 @@ Treat `masked` as a display convenience, not a security boundary. Do not store c
 Check that:
 
 - both the config and rule are enabled;
+- Chrome site permission is granted for the page making the request, and the page was reloaded after granting it;
 - all inputs declared by the config have values;
 - the HTTP method matches;
 - `*` is used for one path segment and `**` when the match needs to cross `/`;

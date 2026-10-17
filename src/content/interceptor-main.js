@@ -15,6 +15,7 @@
   });
 
   let configLoaded = false;
+  let interceptorInstalled = false;
   let preparedConfig = null;
   let latestBridgeRevision = -1;
   let nextRequestId = 0;
@@ -36,9 +37,19 @@
     }
 
     const message = event.data;
-    if (!message || message.source !== SOURCE || message.type !== "CONFIG") {
+    if (!message || message.source !== SOURCE) {
       return;
     }
+    if (message.type === "GET_INTERCEPTION_STATUS") {
+      window.postMessage({
+        source: SOURCE,
+        type: "INTERCEPTION_STATUS",
+        requestId: message.requestId,
+        installed: interceptorInstalled
+      }, "*");
+      return;
+    }
+    if (message.type !== "CONFIG") return;
 
     const payload = message.payload;
     const revision = Number.isInteger(message.revision) ? message.revision : latestBridgeRevision + 1;
@@ -340,7 +351,7 @@
     return request;
   }
 
-  function logMockRequest(request, outcome, bodyText) {
+  function logMockRequest(request, outcome) {
     const logging = preparedConfig.logging;
     if (logging.mode === "off") return;
     const { id, transport, method, url, rule } = request;
@@ -375,11 +386,10 @@
     const delayMs = Math.round(rule.delay);
     const summary = `[Mock #${id}] ${eventName} ${transport} ${method} ${path}${result} · delay ${delayMs} ms`;
     let loggedResponse;
-    if (logging.includeResponse && outcome === "response") {
+    if (logging.includeResponse && outcome === "request") {
       let body = null;
-      if (bodyText !== undefined && bodyText !== "") {
-        // Parse the delivered text to keep the log independent of the application's response object.
-        body = JSON.parse(bodyText);
+      if (method !== "HEAD" && ![204, 205, 304].includes(response.status)) {
+        body = structuredClone(response.body);
       }
       loggedResponse = {
         status: response.status,
@@ -426,6 +436,7 @@
 
   patchFetch();
   patchXmlHttpRequest();
+  interceptorInstalled = true;
 
   function patchFetch() {
     const nativeFetch = window.fetch;
@@ -468,7 +479,7 @@
         // Non-essential; a constructed Response normally has an empty URL.
       }
 
-      logMockRequest(request, "response", body);
+      logMockRequest(request, "response");
       return response;
     };
   }
@@ -659,7 +670,7 @@
       xhr.dispatchEvent(new Event("readystatechange"));
 
       meta.state.readyState = 4;
-      logMockXhr(meta, "response", meta.state.text);
+      logMockXhr(meta, "response");
       xhr.dispatchEvent(new Event("readystatechange"));
 
       const byteLength = new TextEncoder().encode(meta.state.text).byteLength;
@@ -674,10 +685,10 @@
       xhr.dispatchEvent(new Event("loadend"));
     }
 
-    function logMockXhr(meta, outcome, bodyText) {
+    function logMockXhr(meta, outcome) {
       if (meta.outcome) return;
       meta.outcome = outcome;
-      logMockRequest(meta.request, outcome, bodyText);
+      logMockRequest(meta.request, outcome);
     }
 
     function makeMockState(xhr, url, responseConfig, method) {

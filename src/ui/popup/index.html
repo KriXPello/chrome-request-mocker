@@ -18,6 +18,17 @@
           <button id="settings" type="button" aria-label="Settings">⚙</button>
         </div>
       </div>
+      <section id="current-site-access" class="current-site-access" aria-label="Current site access" hidden>
+        <div class="current-site-row">
+          <div class="current-site-summary">
+            <span id="current-site-name" class="current-site-name">Current site</span>
+            <span id="current-site-status" class="current-site-status">Checking access…</span>
+          </div>
+          <button id="grant-current-site" type="button" hidden>Grant access</button>
+          <button id="reload-current-site" type="button" hidden>Reload page</button>
+        </div>
+        <p id="current-site-note" class="current-site-note" role="status" aria-live="polite" hidden></p>
+      </section>
       <div id="sync-status" class="sync-status" role="status" aria-live="polite" hidden></div>
     </header>
     <div id="last-sync">Last sync: Never</div>

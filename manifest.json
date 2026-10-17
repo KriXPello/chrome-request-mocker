@@ -4,8 +4,13 @@
   "version": "2.3.0",
   "description": "Intercept fetch/XHR requests and replace responses in Chrome. Configuration via local JSON files.",
   "minimum_chrome_version": "122",
-  "host_permissions": [
-    "<all_urls>"
+  "permissions": [
+    "scripting",
+    "activeTab"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "src/background/index.js",
@@ -30,23 +35,5 @@
   "options_ui": {
     "page": "src/ui/settings/index.html",
     "open_in_tab": true
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/content/interceptor-main.js"],
-      "run_at": "document_start",
-      "world": "MAIN",
-      "all_frames": true,
-      "match_about_blank": true
-    },
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/content/bridge.js"],
-      "run_at": "document_start",
-      "world": "ISOLATED",
-      "all_frames": true,
-      "match_about_blank": true
-    }
-  ]
+  }
 }

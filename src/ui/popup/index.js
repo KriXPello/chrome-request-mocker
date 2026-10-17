@@ -7,6 +7,7 @@ import { readInputDraft, cleanupInputDrafts, clearInputDraft } from "./input-dra
 import { collectInputValues } from "./input-editor.js";
 import { createConfigCard, COLLAPSED_CONFIG_PREFIX } from "./config-card.js";
 import { formatDate } from "./format-date.js";
+import { initializeSiteAccess } from "./site-access.js";
 
 const mainElement = document.querySelector("main");
 const configsElement = document.querySelector("#configs");
@@ -32,6 +33,7 @@ syncButton.addEventListener("click", syncFromFolder);
 reorderButton.addEventListener("click", toggleReorderMode);
 toggleAllButton.addEventListener("click", toggleConfigs);
 collapseAllButton.addEventListener("click", toggleCollapsedConfigs);
+initializeSiteAccess();
 await initialize();
 
 async function initialize() {

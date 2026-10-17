@@ -10,7 +10,7 @@ Each mocked request produces a **Request** log immediately after a matching rule
 
 The delay shown is the configured delay resolved for this request, not the elapsed time until completion. Detailed logs also include `requestId` and `event` (`request`, `response`, `abort` or `timeout`).
 
-Enable the **Include response** checkbox to also log `{ status, statusText, headers, body }` for completed mock responses:
+Enable the **Include response** checkbox to log the planned mock response as `{ status, statusText, headers, body }` in the **Request** entry, before the delay:
 
 - With **Short**, the response object appears directly beside the summary, without a `response` wrapper.
 - With **Detailed**, the response object is included in the details under `response`.
@@ -18,6 +18,6 @@ Enable the **Include response** checkbox to also log `{ status, statusText, head
 
 The checkbox is off by default. The body is an expandable JSON value with templates already resolved and the actual selected response variant. Logs use a snapshot, so subsequent application changes to the received object do not change the logged body.
 
-Logs appear in the intercepted page's DevTools console at the **Verbose** (`console.debug`) level. Only **Response** entries include a response object when the checkbox is enabled; **Request**, **Abort** and **Timeout** entries do not. HEAD requests and statuses 204, 205 and 304 log `body: null` because no body is delivered.
+Logs appear in the intercepted page's DevTools console at the **Verbose** (`console.debug`) level. Only **Request** entries include a response object when the checkbox is enabled; **Response**, **Abort** and **Timeout** entries do not. The planned response remains visible in the initial entry even if the request is later aborted or times out; it does not mean the response was delivered. HEAD requests and statuses 204, 205 and 304 log `body: null` because these responses have no body.
 
 Response headers and bodies may contain sensitive data; response logging is opt-in. The extension does not save request history.

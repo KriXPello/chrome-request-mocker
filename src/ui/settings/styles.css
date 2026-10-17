@@ -39,7 +39,8 @@ section {
 }
 
 button,
-select {
+select,
+input[type="text"] {
   font: inherit;
   padding: 7px 12px;
 }
@@ -76,6 +77,37 @@ select {
 .setting-notice strong {
   display: block;
 }
+
+.site-access-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+#site-access-input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.site-access-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-access-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.site-access-list li + li { border-top: 1px solid #8883; }
+.site-access-list code { min-width: 0; overflow-wrap: anywhere; }
+.site-access-list button { flex: none; }
 
 #status {
   min-height: 1.4em;
